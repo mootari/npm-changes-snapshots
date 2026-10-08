@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { Octokit } from "octokit";
 
-const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+export const createOctokit = (token?: string) => new Octokit({ auth: token });
 
 export type Repository = { owner: string; repo: string };
 
@@ -11,19 +11,21 @@ export type Repository = { owner: string; repo: string };
  * Returns the tag and creation time of that release, or null if there is none.
  */
 export async function downloadLatestAsset(
-  target: Repository,
+  octokit: Octokit,
+  { owner, repo }: Repository,
   assetName: string,
   dest: string,
 ): Promise<{ tag: string; time: string } | null> {
   // Releases are listed newest first.
-  for await (const { data: releases } of octokit.paginate.iterator(octokit.rest.repos.listReleases, target)) {
+  for await (const { data: releases } of octokit.paginate.iterator(octokit.rest.repos.listReleases, { owner, repo })) {
     for (const release of releases) {
       if (release.draft) continue;
       const asset = release.assets.find((a) => a.name === assetName);
       if (!asset) continue;
 
       const download = await octokit.rest.repos.getReleaseAsset({
-        ...target,
+        owner,
+        repo,
         asset_id: asset.id,
         headers: { accept: "application/octet-stream" },
       });
@@ -40,12 +42,14 @@ export async function downloadLatestAsset(
  * unless `release.draft` is set.
  */
 export async function createRelease(
-  target: Repository,
+  octokit: Octokit,
+  { owner, repo }: Repository,
   release: { tag: string; title: string; notes: string; draft: boolean },
   paths: string[],
 ): Promise<void> {
   const { data } = await octokit.rest.repos.createRelease({
-    ...target,
+    owner,
+    repo,
     tag_name: release.tag,
     name: release.title,
     body: release.notes,
@@ -53,7 +57,8 @@ export async function createRelease(
   });
   for (const path of paths) {
     await octokit.rest.repos.uploadReleaseAsset({
-      ...target,
+      owner,
+      repo,
       release_id: data.id,
       name: basename(path),
       data: (await readFile(path)) as unknown as string,
@@ -61,6 +66,6 @@ export async function createRelease(
     });
   }
   if (!release.draft) {
-    await octokit.rest.repos.updateRelease({ ...target, release_id: data.id, draft: false });
+    await octokit.rest.repos.updateRelease({ owner, repo, release_id: data.id, draft: false });
   }
 }
