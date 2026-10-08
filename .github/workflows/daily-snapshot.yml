@@ -17,6 +17,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Install DuckDB CLI
+        run: |
+          gh release download v1.5.6 --repo duckdb/duckdb --pattern duckdb_cli-linux-amd64.zip
+          unzip duckdb_cli-linux-amd64.zip -d "$RUNNER_TEMP/duckdb"
+          echo "$RUNNER_TEMP/duckdb" >> "$GITHUB_PATH"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm ci
       - run: npm run typecheck
       - id: snapshot

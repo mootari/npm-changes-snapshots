@@ -8,9 +8,6 @@
     "snapshot": "node src/main.ts",
     "typecheck": "tsc"
   },
-  "dependencies": {
-    "@duckdb/node-api": "1.5.6-r.1"
-  },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
