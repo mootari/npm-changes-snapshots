@@ -1,5 +1,5 @@
 import type { StateRecord } from "./feed.ts";
-import type { Delta, SnapshotRef, Stats } from "./parquet.ts";
+import type { Delta, SnapshotRef, Stats, StatsDelta } from "./parquet.ts";
 
 export type Manifest = {
   start: StateRecord;
@@ -22,7 +22,6 @@ function table<T extends Record<string, unknown>>(headers: NoInfer<{ [K in keyof
 }
 
 const statsHeaders = {
-  label: "Snapshot",
   deleted_entries: "Deleted",
   not_deleted_entries: "Not deleted",
   rev_min: "Rev min",
@@ -33,16 +32,8 @@ const statsHeaders = {
   rev_max: "Rev max",
 };
 
-const statsRow = (label: string, stats: Stats) => ({
-  label,
-  ...stats,
-  rev_min: stats.rev_min ?? "-",
-  rev_p50: stats.rev_p50 ?? "-",
-  rev_p90: stats.rev_p90 ?? "-",
-  rev_p95: stats.rev_p95 ?? "-",
-  rev_p99: stats.rev_p99 ?? "-",
-  rev_max: stats.rev_max ?? "-",
-});
+const statsRow = (stats: Stats | StatsDelta) =>
+  Object.fromEntries(Object.entries(stats).map(([key, value]) => [key, value ?? "-"]));
 
 /** Formats an ISO timestamp as `YYYY-MM-DD HH:MM:SS UTC`; falls back to the raw value if unparsable. */
 function formatTime(iso: string): string {
@@ -72,13 +63,13 @@ export function renderNotes(manifest: Manifest, delta: Delta): string {
         feedState("Final", manifest.final),
       ]),
       table({ pages: "Pages fetched", fetched_entries: "Entries fetched", stored_entries: "Entries stored" }, [manifest]),
-      table(statsHeaders, [statsRow("Current", manifest.stats)]),
+      table(statsHeaders, [statsRow(manifest.stats)]),
       "## Delta",
       table({ label: "Snapshot", tag: "Release", time: "Time" }, [
         snapshot("Previous", delta.previous),
         snapshot("Current", delta.current),
       ]),
-      table(statsHeaders, [statsRow("Previous", delta.previous_stats), statsRow("Current", delta.current_stats)]),
+      ...(delta.stats ? [table(statsHeaders, [statsRow(delta.stats)])] : []),
       table(
         {
           added: "Added",

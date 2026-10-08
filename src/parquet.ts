@@ -1,25 +1,33 @@
 import { DuckDBDataChunkWriter, DuckDBInstance, JSToDuckDBValueConverter } from "@duckdb/node-api";
+import * as v from "valibot";
 import type { Entry } from "./feed.ts";
 
 export type SnapshotRef = { tag: string; time: string };
 
+const Count = v.pipe(v.number(), v.safeInteger());
+const RevNumber = v.nullable(Count);
+
 /** Counts and rev number distribution of a snapshot. Rev numbers are null for an empty snapshot. */
-export type Stats = {
-  deleted_entries: number;
-  not_deleted_entries: number;
-  rev_min: number | null;
-  rev_max: number | null;
-  rev_p50: number | null;
-  rev_p90: number | null;
-  rev_p95: number | null;
-  rev_p99: number | null;
-};
+export const StatsSchema = v.object({
+  deleted_entries: Count,
+  not_deleted_entries: Count,
+  rev_min: RevNumber,
+  rev_max: RevNumber,
+  rev_p50: RevNumber,
+  rev_p90: RevNumber,
+  rev_p95: RevNumber,
+  rev_p99: RevNumber,
+});
+
+export type Stats = v.InferOutput<typeof StatsSchema>;
+
+/** Difference between two snapshots' stats (current minus previous), null where either side has no value. */
+export type StatsDelta = { [K in keyof Stats]: number | null };
 
 export type Delta = {
   previous: SnapshotRef | null;
   current: SnapshotRef;
-  previous_stats: Stats;
-  current_stats: Stats;
+  stats: StatsDelta | null;
   missing: number;
   added: number;
   updated_seq_changed: number;
@@ -72,6 +80,13 @@ export async function computeStats(path: string): Promise<Stats> {
   };
 }
 
+export function diffStats(previous: Stats, current: Stats): StatsDelta {
+  const keys = Object.keys(current) as (keyof Stats)[];
+  return Object.fromEntries(
+    keys.map((key) => [key, previous[key] === null || current[key] === null ? null : current[key] - previous[key]]),
+  ) as StatsDelta;
+}
+
 /**
  * Compares two snapshots by id. An id counts as updated without a seq change
  * when its seq is equal but its rev or deleted flag differs.
@@ -81,6 +96,7 @@ export async function compareSnapshots(
   currentPath: string,
   previous: SnapshotRef | null,
   current: SnapshotRef,
+  stats: StatsDelta | null,
 ): Promise<Delta> {
   const connection = await (await DuckDBInstance.create()).connect();
   const reader = await connection.runAndReadAll(
@@ -99,8 +115,7 @@ export async function compareSnapshots(
   return {
     previous,
     current,
-    previous_stats: await computeStats(previousPath),
-    current_stats: await computeStats(currentPath),
+    stats,
     missing: Number(row.missing),
     added: Number(row.added),
     updated_seq_changed: Number(row.updated_seq_changed),

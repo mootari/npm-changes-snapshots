@@ -7,29 +7,33 @@ export const createOctokit = (token?: string) => new Octokit({ auth: token });
 export type Repository = { owner: string; repo: string };
 
 /**
- * Downloads the named asset from the most recent published release that has it.
- * Returns the tag and creation time of that release, or null if there is none.
+ * Downloads the assets in `dests` (asset name to destination path) from the most recent published
+ * release that has all of them. Returns the tag and creation time of that release, or null if there is none.
  */
-export async function downloadLatestAsset(
+export async function downloadLatestAssets(
   octokit: Octokit,
   { owner, repo }: Repository,
-  assetName: string,
-  dest: string,
+  dests: Record<string, string>,
 ): Promise<{ tag: string; time: string } | null> {
   // Releases are listed newest first.
   for await (const { data: releases } of octokit.paginate.iterator(octokit.rest.repos.listReleases, { owner, repo })) {
     for (const release of releases) {
       if (release.draft) continue;
-      const asset = release.assets.find((a) => a.name === assetName);
-      if (!asset) continue;
+      const assets = Object.entries(dests).map(([name, dest]) => ({
+        asset: release.assets.find((a) => a.name === name),
+        dest,
+      }));
+      if (assets.some(({ asset }) => !asset)) continue;
 
-      const download = await octokit.rest.repos.getReleaseAsset({
-        owner,
-        repo,
-        asset_id: asset.id,
-        headers: { accept: "application/octet-stream" },
-      });
-      await writeFile(dest, Buffer.from(download.data as unknown as ArrayBuffer));
+      for (const { asset, dest } of assets) {
+        const download = await octokit.rest.repos.getReleaseAsset({
+          owner,
+          repo,
+          asset_id: asset!.id,
+          headers: { accept: "application/octet-stream" },
+        });
+        await writeFile(dest, Buffer.from(download.data as unknown as ArrayBuffer));
+      }
       return { tag: release.tag_name, time: release.created_at };
     }
   }
