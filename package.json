@@ -1,0 +1,18 @@
+{
+  "name": "npm-changes-snapshots",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Creates a daily snapshot of npm's changes feed to verify claims of retroactive changes.",
+  "scripts": {
+    "snapshot": "node src/main.ts",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "1.5.6-r.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
