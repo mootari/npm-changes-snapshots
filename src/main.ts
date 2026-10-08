@@ -1,6 +1,5 @@
 import { getHeapStatistics } from "node:v8";
 import { mkdir, writeFile } from "node:fs/promises";
-import { totalmem } from "node:os";
 import { join } from "node:path";
 import { parseConfig } from "./config.ts";
 import { fetchChanges, fetchFeedState } from "./feed.ts";
@@ -18,10 +17,9 @@ const MiB = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MiB`;
 function logMemory(label: string): void {
   const { heapUsed, rss } = process.memoryUsage();
   const heapLimit = getHeapStatistics().heap_size_limit;
-  const systemLimit = process.constrainedMemory() || totalmem();
   console.log(
     `Memory ${label}: heap ${MiB(heapUsed)} / ${MiB(heapLimit)} (${(heapUsed / heapLimit * 100).toFixed(1)}%), ` +
-      `rss ${MiB(rss)} / ${MiB(systemLimit)} (${(rss / systemLimit * 100).toFixed(1)}%)`,
+      `rss ${MiB(rss)}`,
   );
 }
 
