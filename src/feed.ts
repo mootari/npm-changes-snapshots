@@ -1,12 +1,27 @@
+import * as v from "valibot";
+
 const FEED_URL = "https://replicate.npmjs.com/";
 const CHANGES_URL = "https://replicate.npmjs.com/registry/_changes";
 const PAGE_LIMIT = 10000;
 const MAX_ATTEMPTS = 5;
 
-export interface FeedState {
-  update_seq: number | string;
-  [key: string]: unknown;
-}
+const Seq = v.pipe(v.number(), v.safeInteger());
+
+const FeedStateSchema = v.looseObject({ update_seq: Seq });
+
+const ChangesPageSchema = v.object({
+  results: v.array(
+    v.object({
+      seq: Seq,
+      id: v.string(),
+      deleted: v.optional(v.boolean(), false),
+      changes: v.pipe(v.array(v.object({ rev: v.string() })), v.minLength(1)),
+    }),
+  ),
+  last_seq: Seq,
+});
+
+export type FeedState = v.InferOutput<typeof FeedStateSchema>;
 
 export interface StateRecord {
   time: string;
@@ -16,9 +31,9 @@ export interface StateRecord {
 export interface Entry {
   id: string;
   seq: number;
-  rev: string | null;
+  rev: string;
   deleted: boolean;
-  fetched_at: string;
+  fetched_at: Date;
 }
 
 export interface ChangesResult {
@@ -27,71 +42,48 @@ export interface ChangesResult {
   fetchedEntries: number;
 }
 
-interface ChangesPage {
-  results: { seq: number | string; id: string; deleted?: boolean; changes?: { rev: string }[] }[];
-  last_seq: number | string;
-}
-
-async function getJson<T>(url: string): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+async function getJson(url: string): Promise<unknown> {
+  for (let attempt = 1; ; attempt++) {
     try {
       const response = await fetch(url, { headers: { accept: "application/json" } });
       if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-      return (await response.json()) as T;
+      return await response.json();
     } catch (error) {
-      lastError = error;
-      if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, 2 ** attempt * 1000));
+      if (attempt >= MAX_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 2 ** attempt * 1000));
     }
   }
-  throw lastError;
 }
 
-export async function fetchFeedState(baseUrl = FEED_URL): Promise<StateRecord> {
+export async function fetchFeedState(url = FEED_URL): Promise<StateRecord> {
   const time = new Date().toISOString();
-  const state = await getJson<FeedState>(baseUrl);
+  const state = v.parse(FeedStateSchema, await getJson(url));
   return { time, state };
-}
-
-function toSeq(value: number | string): number {
-  const seq = Number(value);
-  if (!Number.isSafeInteger(seq)) throw new Error(`Unsupported seq value: ${value}`);
-  return seq;
 }
 
 /**
  * Pages through the changes feed until `updateSeq` is reached. Entries past
  * `updateSeq` are discarded, only the latest entry per id is kept.
  */
-export async function fetchChanges(updateSeq: number, changesUrl = CHANGES_URL): Promise<ChangesResult> {
+export async function fetchChanges(updateSeq: number, url = CHANGES_URL): Promise<ChangesResult> {
   const entries = new Map<string, Entry>();
   let since = 0;
   let pages = 0;
   let fetchedEntries = 0;
 
   while (since < updateSeq) {
-    const fetchedAt = new Date().toISOString();
-    const page = await getJson<ChangesPage>(`${changesUrl}?since=${since}&limit=${PAGE_LIMIT}`);
+    const fetched_at = new Date();
+    const page = v.parse(ChangesPageSchema, await getJson(`${url}?since=${since}&limit=${PAGE_LIMIT}`));
     pages++;
     fetchedEntries += page.results.length;
-    if (page.results.length === 0) break;
+    if (page.last_seq <= since) throw new Error(`Feed did not advance past seq ${since}`);
 
-    for (const result of page.results) {
-      const seq = toSeq(result.seq);
+    for (const { seq, id, deleted, changes } of page.results) {
       if (seq > updateSeq) continue;
       // Results are ordered by seq, so later entries replace earlier ones.
-      entries.set(result.id, {
-        id: result.id,
-        seq,
-        rev: result.changes?.[result.changes.length - 1]?.rev ?? null,
-        deleted: result.deleted === true,
-        fetched_at: fetchedAt,
-      });
+      entries.set(id, { id, seq, rev: changes[changes.length - 1].rev, deleted, fetched_at });
     }
-
-    const next = toSeq(page.last_seq);
-    if (next <= since) throw new Error(`Feed did not advance past seq ${since}`);
-    since = next;
+    since = page.last_seq;
   }
 
   return { entries, pages, fetchedEntries };

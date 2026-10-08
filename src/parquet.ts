@@ -1,66 +1,36 @@
-import { execFile } from "node:child_process";
-import { createWriteStream } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { once } from "node:events";
-import { promisify } from "node:util";
+import { DuckDBInstance, DuckDBTimestampTZValue } from "@duckdb/node-api";
 import type { Entry } from "./feed.ts";
 
-const run = promisify(execFile);
-const DUCKDB = process.env.DUCKDB ?? "duckdb";
-
-function quote(path: string): string {
-  return `'${path.replaceAll("'", "''")}'`;
-}
-
-async function duckdb(sql: string, json = false): Promise<string> {
-  const args = [":memory:", ...(json ? ["-json"] : []), "-c", sql];
-  const { stdout } = await run(DUCKDB, args, { maxBuffer: 64 * 1024 * 1024 });
-  return stdout;
-}
-
-async function writeNdjson(entries: Iterable<Entry>, path: string): Promise<void> {
-  const stream = createWriteStream(path);
-  let chunk = "";
-  for (const entry of entries) {
-    chunk += JSON.stringify(entry) + "\n";
-    if (chunk.length >= 1 << 20) {
-      if (!stream.write(chunk)) await once(stream, "drain");
-      chunk = "";
-    }
-  }
-  stream.end(chunk);
-  await once(stream, "finish");
-}
-
-/** Writes entries ordered by id to a ZSTD-compressed Parquet file using the DuckDB CLI. */
-export async function writeParquet(entries: Iterable<Entry>, path: string): Promise<void> {
-  const dir = await mkdtemp(join(tmpdir(), "snapshot-"));
-  try {
-    const ndjson = join(dir, "entries.ndjson");
-    await writeNdjson(entries, ndjson);
-    await duckdb(`
-      COPY (
-        SELECT id, seq, rev, deleted, fetched_at
-        FROM read_json(${quote(ndjson)}, format = 'newline_delimited', columns = {
-          id: 'VARCHAR', seq: 'BIGINT', rev: 'VARCHAR', deleted: 'BOOLEAN', fetched_at: 'TIMESTAMPTZ'
-        })
-        ORDER BY id
-      ) TO ${quote(path)} (FORMAT parquet, COMPRESSION zstd)
-    `);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-
-export interface Delta {
+export type Delta = {
   previous_snapshot: string;
   current_snapshot: string;
   missing: number;
   added: number;
   updated_seq_changed: number;
   updated_seq_unchanged: number;
+};
+
+const quote = (path: string) => `'${path.replaceAll("'", "''")}'`;
+
+/** Writes entries ordered by id to a ZSTD-compressed Parquet file. */
+export async function writeParquet(entries: Iterable<Entry>, path: string): Promise<void> {
+  const connection = await (await DuckDBInstance.create()).connect();
+  await connection.run(
+    "CREATE TABLE entries (id VARCHAR, seq BIGINT, rev VARCHAR, deleted BOOLEAN, fetched_at TIMESTAMPTZ)",
+  );
+  const appender = await connection.createAppender("entries");
+  for (const entry of entries) {
+    appender.appendVarchar(entry.id);
+    appender.appendBigInt(BigInt(entry.seq));
+    appender.appendVarchar(entry.rev);
+    appender.appendBoolean(entry.deleted);
+    appender.appendTimestampTZ(new DuckDBTimestampTZValue(BigInt(entry.fetched_at.getTime()) * 1000n));
+    appender.endRow();
+  }
+  appender.closeSync();
+  await connection.run(
+    `COPY (SELECT * FROM entries ORDER BY id) TO ${quote(path)} (FORMAT parquet, COMPRESSION zstd)`,
+  );
 }
 
 /**
@@ -72,22 +42,19 @@ export async function compareSnapshots(
   currentPath: string,
   labels: { previous: string; current: string },
 ): Promise<Delta> {
-  const output = await duckdb(
-    `
+  const connection = await (await DuckDBInstance.create()).connect();
+  const reader = await connection.runAndReadAll(`
     SELECT
       count(*) FILTER (WHERE n.id IS NULL) AS missing,
       count(*) FILTER (WHERE o.id IS NULL) AS added,
-      count(*) FILTER (WHERE o.id IS NOT NULL AND n.id IS NOT NULL AND o.seq <> n.seq) AS updated_seq_changed,
+      count(*) FILTER (WHERE o.seq <> n.seq) AS updated_seq_changed,
       count(*) FILTER (
-        WHERE o.id IS NOT NULL AND n.id IS NOT NULL AND o.seq = n.seq
-          AND (o.rev IS DISTINCT FROM n.rev OR o.deleted IS DISTINCT FROM n.deleted)
+        WHERE o.seq = n.seq AND (o.rev IS DISTINCT FROM n.rev OR o.deleted IS DISTINCT FROM n.deleted)
       ) AS updated_seq_unchanged
     FROM read_parquet(${quote(previousPath)}) o
     FULL OUTER JOIN read_parquet(${quote(currentPath)}) n ON o.id = n.id
-  `,
-    true,
-  );
-  const row = JSON.parse(output)[0] as Record<string, number>;
+  `);
+  const row = reader.getRowObjectsJson()[0];
   return {
     previous_snapshot: labels.previous,
     current_snapshot: labels.current,

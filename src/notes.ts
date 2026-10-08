@@ -9,44 +9,35 @@ export interface Manifest {
   stored_entries: number;
 }
 
-function table(rows: [string, string | number][]): string {
-  const lines = ["| Key | Value |", "| --- | ---: |"];
-  for (const [key, value] of rows) lines.push(`| ${key} | ${value} |`);
-  return lines.join("\n");
+type Row = Record<string, string | number>;
+
+function table(headers: string[], rows: Row[]): string {
+  const line = (cells: (string | number)[]) => `| ${cells.join(" | ")} |`;
+  return [line(headers), line(headers.map(() => "---")), ...rows.map((row) => line(headers.map((h) => row[h])))].join(
+    "\n",
+  );
 }
 
-function flattenState(prefix: string, record: StateRecord): [string, string][] {
+function stateRows(label: string, { time, state }: StateRecord): Row[] {
   return [
-    [`${prefix}.time`, record.time],
-    ...Object.entries(record.state).map(([k, v]): [string, string] => [
-      `${prefix}.state.${k}`,
-      typeof v === "object" ? JSON.stringify(v) : String(v),
-    ]),
+    { Key: `${label}.time`, Value: time },
+    ...Object.entries(state).map(([key, value]) => ({
+      Key: `${label}.state.${key}`,
+      Value: typeof value === "string" ? value : JSON.stringify(value),
+    })),
   ];
 }
 
 export function renderNotes(manifest: Manifest, delta: Delta | null): string {
-  const manifestRows: [string, string | number][] = [
-    ...flattenState("start", manifest.start),
-    ...flattenState("final", manifest.final),
-    ["pages", manifest.pages],
-    ["fetched_entries", manifest.fetched_entries],
-    ["stored_entries", manifest.stored_entries],
+  const manifestRows: Row[] = [
+    ...stateRows("start", manifest.start),
+    ...stateRows("final", manifest.final),
+    { Key: "pages", Value: manifest.pages },
+    { Key: "fetched_entries", Value: manifest.fetched_entries },
+    { Key: "stored_entries", Value: manifest.stored_entries },
   ];
-  const sections = ["## Manifest", table(manifestRows), "## Delta"];
-  if (delta) {
-    sections.push(
-      table([
-        ["previous_snapshot", delta.previous_snapshot],
-        ["current_snapshot", delta.current_snapshot],
-        ["missing", delta.missing],
-        ["added", delta.added],
-        ["updated_seq_changed", delta.updated_seq_changed],
-        ["updated_seq_unchanged", delta.updated_seq_unchanged],
-      ]),
-    );
-  } else {
-    sections.push("No snapshot from the previous day was available for comparison.");
-  }
-  return sections.join("\n\n") + "\n";
+  const deltaSection = delta
+    ? table(Object.keys(delta), [delta])
+    : "No snapshot from the previous day was available for comparison.";
+  return `## Manifest\n\n${table(["Key", "Value"], manifestRows)}\n\n## Delta\n\n${deltaSection}\n`;
 }
