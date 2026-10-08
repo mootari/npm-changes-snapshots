@@ -6,7 +6,7 @@ import { parseConfig } from "./config.ts";
 import { fetchChanges, fetchFeedState } from "./feed.ts";
 import { createOctokit, createRelease, downloadLatestAsset } from "./github.ts";
 import { renderNotes, type Manifest } from "./notes.ts";
-import { compareSnapshots, writeParquet } from "./parquet.ts";
+import { compareSnapshots, computeStats, writeParquet } from "./parquet.ts";
 
 const config = parseConfig(process.env);
 const OUT_DIR = config.outDir;
@@ -44,20 +44,21 @@ logMemory("after fetch");
 // 3. Final state
 const final = await fetchFeedState(config.feedUrl);
 
-// 4. Manifest
+// 4. Parquet
+const currentFile = join(OUT_DIR, SNAPSHOT_FILE);
+await writeParquet(entries.values(), currentFile);
+
+// 5. Manifest
 const manifest: Manifest = {
   start,
   final,
   pages,
   fetched_entries: fetchedEntries,
   stored_entries: entries.size,
+  stats: await computeStats(currentFile),
 };
 const manifestFile = join(OUT_DIR, "manifest.json");
 await writeJson(manifestFile, manifest);
-
-// 5. Parquet
-const currentFile = join(OUT_DIR, SNAPSHOT_FILE);
-await writeParquet(entries.values(), currentFile);
 
 // 6. Previous snapshot
 const { repository, draft } = config;

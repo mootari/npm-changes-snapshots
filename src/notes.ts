@@ -1,5 +1,5 @@
 import type { StateRecord } from "./feed.ts";
-import type { Delta, SnapshotRef } from "./parquet.ts";
+import type { Delta, SnapshotRef, Stats } from "./parquet.ts";
 
 export type Manifest = {
   start: StateRecord;
@@ -7,6 +7,7 @@ export type Manifest = {
   pages: number;
   fetched_entries: number;
   stored_entries: number;
+  stats: Stats;
 };
 
 /** Renders rows as a Markdown table. `headers` maps row keys to column labels, in column order. */
@@ -19,6 +20,29 @@ function table<T extends Record<string, unknown>>(headers: NoInfer<{ [K in keyof
     ...rows.map((row) => line(columns.map((key) => row[key]))),
   ].join("\n");
 }
+
+const statsHeaders = {
+  label: "Snapshot",
+  deleted_entries: "Deleted",
+  not_deleted_entries: "Not deleted",
+  rev_min: "Rev min",
+  rev_p50: "Rev p50",
+  rev_p90: "Rev p90",
+  rev_p95: "Rev p95",
+  rev_p99: "Rev p99",
+  rev_max: "Rev max",
+};
+
+const statsRow = (label: string, stats: Stats) => ({
+  label,
+  ...stats,
+  rev_min: stats.rev_min ?? "-",
+  rev_p50: stats.rev_p50 ?? "-",
+  rev_p90: stats.rev_p90 ?? "-",
+  rev_p95: stats.rev_p95 ?? "-",
+  rev_p99: stats.rev_p99 ?? "-",
+  rev_max: stats.rev_max ?? "-",
+});
 
 export function renderNotes(manifest: Manifest, delta: Delta): string {
   const feedState = (label: string, { time, state }: StateRecord) => ({
@@ -41,11 +65,13 @@ export function renderNotes(manifest: Manifest, delta: Delta): string {
         feedState("Final", manifest.final),
       ]),
       table({ pages: "Pages fetched", fetched_entries: "Entries fetched", stored_entries: "Entries stored" }, [manifest]),
+      table(statsHeaders, [statsRow("Current", manifest.stats)]),
       "## Delta",
       table({ label: "Snapshot", tag: "Release", time: "Time" }, [
         snapshot("Previous", delta.previous),
         snapshot("Current", delta.current),
       ]),
+      table(statsHeaders, [statsRow("Previous", delta.previous_stats), statsRow("Current", delta.current_stats)]),
       table(
         {
           added: "Added",
