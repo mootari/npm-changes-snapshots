@@ -1,43 +1,61 @@
 import type { StateRecord } from "./feed.ts";
-import type { Delta } from "./parquet.ts";
+import type { Delta, SnapshotRef } from "./parquet.ts";
 
-export interface Manifest {
+export type Manifest = {
   start: StateRecord;
   final: StateRecord;
   pages: number;
   fetched_entries: number;
   stored_entries: number;
-}
+};
 
-type Row = Record<string, string | number>;
-
-function table(headers: string[], rows: Row[]): string {
-  const line = (cells: (string | number)[]) => `| ${cells.join(" | ")} |`;
-  return [line(headers), line(headers.map(() => "---")), ...rows.map((row) => line(headers.map((h) => row[h])))].join(
-    "\n",
-  );
-}
-
-function stateRows(label: string, { time, state }: StateRecord): Row[] {
+/** Renders rows as a Markdown table. `headers` maps row keys to column labels, in column order. */
+function table<T extends Record<string, unknown>>(headers: NoInfer<{ [K in keyof T]?: string }>, rows: T[]): string {
+  const columns = Object.keys(headers) as (keyof T & string)[];
+  const line = (cells: unknown[]) => `| ${cells.join(" | ")} |`;
   return [
-    { Key: `${label}.time`, Value: time },
-    ...Object.entries(state).map(([key, value]) => ({
-      Key: `${label}.state.${key}`,
-      Value: typeof value === "string" ? value : JSON.stringify(value),
-    })),
-  ];
+    line(columns.map((key) => headers[key])),
+    line(columns.map(() => "---")),
+    ...rows.map((row) => line(columns.map((key) => row[key]))),
+  ].join("\n");
 }
 
-export function renderNotes(manifest: Manifest, delta: Delta | null): string {
-  const manifestRows: Row[] = [
-    ...stateRows("start", manifest.start),
-    ...stateRows("final", manifest.final),
-    { Key: "pages", Value: manifest.pages },
-    { Key: "fetched_entries", Value: manifest.fetched_entries },
-    { Key: "stored_entries", Value: manifest.stored_entries },
-  ];
-  const deltaSection = delta
-    ? table(Object.keys(delta), [delta])
-    : "No previous snapshot was available for comparison.";
-  return `## Manifest\n\n${table(["Key", "Value"], manifestRows)}\n\n## Delta\n\n${deltaSection}\n`;
+export function renderNotes(manifest: Manifest, delta: Delta): string {
+  const feedState = (label: string, { time, state }: StateRecord) => ({
+    label,
+    time,
+    documents: state.doc_count,
+    sequence: state.update_seq,
+  });
+  const snapshot = (label: string, ref: SnapshotRef | null) => ({
+    label,
+    tag: ref?.tag ?? "none",
+    time: ref?.time ?? "-",
+  });
+
+  return (
+    [
+      "## Manifest",
+      table({ label: "Feed state", time: "Time", documents: "Documents", sequence: "Sequence" }, [
+        feedState("Start", manifest.start),
+        feedState("Final", manifest.final),
+      ]),
+      table({ pages: "Pages fetched", fetched_entries: "Entries fetched", stored_entries: "Entries stored" }, [manifest]),
+      "## Delta",
+      table({ label: "Snapshot", tag: "Release", time: "Time" }, [
+        snapshot("Previous", delta.previous),
+        snapshot("Current", delta.current),
+      ]),
+      table(
+        {
+          added: "Added",
+          missing: "Removed",
+          updated_seq_changed: "Updated",
+          updated_seq_unchanged: "Retroactively changed",
+        },
+        [delta],
+      ),
+      "Updated entries have a new sequence number. Retroactively changed entries differ from the previous snapshot without a new sequence number.",
+    ].join("\n\n") + "\n"
+  );
 }

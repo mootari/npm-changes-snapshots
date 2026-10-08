@@ -11,9 +11,13 @@ function parseRepository(repository: string) {
 
 /**
  * Downloads the named asset from the most recent release that has it.
- * Returns the tag of that release, or null if there is none.
+ * Returns the tag and creation time of that release, or null if there is none.
  */
-export async function downloadLatestAsset(repository: string, assetName: string, dest: string): Promise<string | null> {
+export async function downloadLatestAsset(
+  repository: string,
+  assetName: string,
+  dest: string,
+): Promise<{ tag: string; time: string } | null> {
   const target = parseRepository(repository);
 
   // Releases are listed newest first.
@@ -28,7 +32,7 @@ export async function downloadLatestAsset(repository: string, assetName: string,
         headers: { accept: "application/octet-stream" },
       });
       await writeFile(dest, Buffer.from(download.data as unknown as ArrayBuffer));
-      return release.tag_name;
+      return { tag: release.tag_name, time: release.created_at };
     }
   }
   return null;

@@ -47,15 +47,16 @@ await writeParquet(entries.values(), currentFile);
 // 6. Previous snapshot
 const repository = process.env.GITHUB_REPOSITORY;
 const previousFile = join(PREVIOUS_DIR, SNAPSHOT_FILE);
-const previousTag = repository ? await downloadLatestAsset(repository, SNAPSHOT_FILE, previousFile) : null;
+const previous = repository ? await downloadLatestAsset(repository, SNAPSHOT_FILE, previousFile) : null;
+if (!previous) {
+  console.warn("No previous snapshot found, comparing against an empty dataset.");
+  await writeParquet([], previousFile);
+}
 
 // 7. Delta
-const delta = previousTag
-  ? await compareSnapshots(previousFile, currentFile, { previous: previousTag, current: tagFor(date) })
-  : null;
+const delta = await compareSnapshots(previousFile, currentFile, previous, { tag: tagFor(date), time: start.time });
 const deltaFile = join(OUT_DIR, "delta.json");
-if (delta) await writeJson(deltaFile, delta);
-else console.warn("No previous snapshot found, skipping delta.");
+await writeJson(deltaFile, delta);
 
 // 8. Release
 const notes = renderNotes(manifest, delta);
@@ -64,7 +65,7 @@ if (repository) {
   await createRelease(
     repository,
     { tag: tagFor(date), title: `npm changes snapshot ${date}`, notes },
-    [currentFile, manifestFile, ...(delta ? [deltaFile] : [])],
+    [currentFile, manifestFile, deltaFile],
   );
 } else {
   console.warn("GITHUB_REPOSITORY is not set, skipping release.");

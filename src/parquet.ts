@@ -1,9 +1,11 @@
-import { DuckDBInstance, DuckDBTimestampTZValue } from "@duckdb/node-api";
+import { DuckDBDataChunkWriter, DuckDBInstance, JSToDuckDBValueConverter } from "@duckdb/node-api";
 import type { Entry } from "./feed.ts";
 
+export type SnapshotRef = { tag: string; time: string };
+
 export type Delta = {
-  previous_snapshot: string;
-  current_snapshot: string;
+  previous: SnapshotRef | null;
+  current: SnapshotRef;
   missing: number;
   added: number;
   updated_seq_changed: number;
@@ -19,14 +21,11 @@ export async function writeParquet(entries: Iterable<Entry>, path: string): Prom
     "CREATE TABLE entries (id VARCHAR, seq BIGINT, rev VARCHAR, deleted BOOLEAN, fetched_at TIMESTAMPTZ)",
   );
   const appender = await connection.createAppender("entries");
-  for (const entry of entries) {
-    appender.appendVarchar(entry.id);
-    appender.appendBigInt(BigInt(entry.seq));
-    appender.appendVarchar(entry.rev);
-    appender.appendBoolean(entry.deleted);
-    appender.appendTimestampTZ(new DuckDBTimestampTZValue(BigInt(entry.fetched_at.getTime()) * 1000n));
-    appender.endRow();
+  const writer = DuckDBDataChunkWriter.forAppender(appender, { converter: JSToDuckDBValueConverter });
+  for (const { id, seq, rev, deleted, fetched_at } of entries) {
+    writer.appendRow([id, seq, rev, deleted, fetched_at]);
   }
+  writer.flush();
   appender.closeSync();
   await connection.run(
     `COPY (SELECT * FROM entries ORDER BY id) TO ${quote(path)} (FORMAT parquet, COMPRESSION zstd)`,
@@ -40,7 +39,8 @@ export async function writeParquet(entries: Iterable<Entry>, path: string): Prom
 export async function compareSnapshots(
   previousPath: string,
   currentPath: string,
-  labels: { previous: string; current: string },
+  previous: SnapshotRef | null,
+  current: SnapshotRef,
 ): Promise<Delta> {
   const connection = await (await DuckDBInstance.create()).connect();
   const reader = await connection.runAndReadAll(`
@@ -56,8 +56,8 @@ export async function compareSnapshots(
   `);
   const row = reader.getRowObjectsJson()[0];
   return {
-    previous_snapshot: labels.previous,
-    current_snapshot: labels.current,
+    previous,
+    current,
     missing: Number(row.missing),
     added: Number(row.added),
     updated_seq_changed: Number(row.updated_seq_changed),
