@@ -1,0 +1,13 @@
+# Exclude everything by default, then add exceptions.
+*
+!/.gitignore
+!/LICENSE
+!/README.md
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+!/.github/
+!/.github/workflows/
+!/.github/workflows/*.yml
+!/src/
+!/src/*.ts
