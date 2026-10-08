@@ -38,6 +38,6 @@ export function renderNotes(manifest: Manifest, delta: Delta | null): string {
   ];
   const deltaSection = delta
     ? table(Object.keys(delta), [delta])
-    : "No snapshot from the previous day was available for comparison.";
+    : "No previous snapshot was available for comparison.";
   return `## Manifest\n\n${table(["Key", "Value"], manifestRows)}\n\n## Delta\n\n${deltaSection}\n`;
 }

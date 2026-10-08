@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fetchChanges, fetchFeedState } from "./feed.ts";
-import { createRelease, downloadReleaseAsset } from "./github.ts";
+import { createRelease, downloadLatestAsset } from "./github.ts";
 import { renderNotes, type Manifest } from "./notes.ts";
 import { compareSnapshots, writeParquet } from "./parquet.ts";
 
@@ -22,7 +22,6 @@ await mkdir(PREVIOUS_DIR, { recursive: true });
 // 1. Start state
 const start = await fetchFeedState(FEED_URL);
 const date = start.time.slice(0, 10);
-const previousDate = new Date(Date.parse(date) - 86_400_000).toISOString().slice(0, 10);
 
 // 2. Changes
 const { entries, pages, fetchedEntries } = await fetchChanges(start.state.update_seq, CHANGES_URL);
@@ -48,16 +47,15 @@ await writeParquet(entries.values(), currentFile);
 // 6. Previous snapshot
 const repository = process.env.GITHUB_REPOSITORY;
 const previousFile = join(PREVIOUS_DIR, SNAPSHOT_FILE);
-const hasPrevious =
-  repository !== undefined && (await downloadReleaseAsset(repository, tagFor(previousDate), SNAPSHOT_FILE, previousFile));
+const previousTag = repository ? await downloadLatestAsset(repository, SNAPSHOT_FILE, previousFile) : null;
 
 // 7. Delta
-const delta = hasPrevious
-  ? await compareSnapshots(previousFile, currentFile, { previous: previousDate, current: date })
+const delta = previousTag
+  ? await compareSnapshots(previousFile, currentFile, { previous: previousTag, current: tagFor(date) })
   : null;
 const deltaFile = join(OUT_DIR, "delta.json");
 if (delta) await writeJson(deltaFile, delta);
-else console.warn(`No snapshot found for ${previousDate}, skipping delta.`);
+else console.warn("No previous snapshot found, skipping delta.");
 
 // 8. Release
 const notes = renderNotes(manifest, delta);

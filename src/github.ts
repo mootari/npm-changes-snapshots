@@ -9,29 +9,29 @@ function parseRepository(repository: string) {
   return { owner, repo };
 }
 
-/** Downloads a release asset to `dest`. Returns false if the release or asset does not exist. */
-export async function downloadReleaseAsset(
-  repository: string,
-  tag: string,
-  assetName: string,
-  dest: string,
-): Promise<boolean> {
+/**
+ * Downloads the named asset from the most recent release that has it.
+ * Returns the tag of that release, or null if there is none.
+ */
+export async function downloadLatestAsset(repository: string, assetName: string, dest: string): Promise<string | null> {
   const target = parseRepository(repository);
 
-  const release = await octokit.rest.repos.getReleaseByTag({ ...target, tag }).catch((error) => {
-    if (error.status === 404) return null;
-    throw error;
-  });
-  const asset = release?.data.assets.find((a) => a.name === assetName);
-  if (!asset) return false;
+  // Releases are listed newest first.
+  for await (const { data: releases } of octokit.paginate.iterator(octokit.rest.repos.listReleases, target)) {
+    for (const release of releases) {
+      const asset = release.assets.find((a) => a.name === assetName);
+      if (!asset) continue;
 
-  const download = await octokit.rest.repos.getReleaseAsset({
-    ...target,
-    asset_id: asset.id,
-    headers: { accept: "application/octet-stream" },
-  });
-  await writeFile(dest, Buffer.from(download.data as unknown as ArrayBuffer));
-  return true;
+      const download = await octokit.rest.repos.getReleaseAsset({
+        ...target,
+        asset_id: asset.id,
+        headers: { accept: "application/octet-stream" },
+      });
+      await writeFile(dest, Buffer.from(download.data as unknown as ArrayBuffer));
+      return release.tag_name;
+    }
+  }
+  return null;
 }
 
 /** Creates a release and uploads the files at `paths` as its assets. */
