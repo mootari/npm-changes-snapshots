@@ -7,33 +7,34 @@ const MAX_ATTEMPTS = 5;
 
 const Seq = v.pipe(v.number(), v.safeInteger());
 
-const FeedStateSchema = v.looseObject({ update_seq: Seq });
+const FeedStateSchema = v.looseObject({
+  db_name: v.string(),
+  engine: v.string(),
+  doc_count: v.number(),
+  update_seq: Seq,
+});
+
+const ChangeSchema = v.pipe(
+  v.object({
+    seq: Seq,
+    id: v.string(),
+    changes: v.strictTuple([v.object({ rev: v.string() })]),
+    deleted: v.optional(v.boolean(), false),
+  }),
+  v.transform(({ seq, id, changes: [{ rev }], deleted }) => ({ seq, id, rev, deleted })),
+);
 
 const ChangesPageSchema = v.object({
-  results: v.array(
-    v.object({
-      seq: Seq,
-      id: v.string(),
-      deleted: v.optional(v.boolean(), false),
-      changes: v.pipe(v.array(v.object({ rev: v.string() })), v.minLength(1)),
-    }),
-  ),
+  results: v.array(ChangeSchema),
   last_seq: Seq,
 });
 
 export type FeedState = v.InferOutput<typeof FeedStateSchema>;
+export type Entry = v.InferOutput<typeof ChangeSchema> & { fetched_at: Date };
 
 export interface StateRecord {
   time: string;
   state: FeedState;
-}
-
-export interface Entry {
-  id: string;
-  seq: number;
-  rev: string;
-  deleted: boolean;
-  fetched_at: Date;
 }
 
 export interface ChangesResult {
@@ -76,12 +77,15 @@ export async function fetchChanges(updateSeq: number, url = CHANGES_URL): Promis
     const page = v.parse(ChangesPageSchema, await getJson(`${url}?since=${since}&limit=${PAGE_LIMIT}`));
     pages++;
     fetchedEntries += page.results.length;
-    if (page.last_seq <= since) throw new Error(`Feed did not advance past seq ${since}`);
 
-    for (const { seq, id, deleted, changes } of page.results) {
-      if (seq > updateSeq) continue;
+    for (const change of page.results) {
       // Results are ordered by seq, so later entries replace earlier ones.
-      entries.set(id, { id, seq, rev: changes[changes.length - 1].rev, deleted, fetched_at });
+      if (change.seq <= updateSeq) entries.set(change.id, { ...change, fetched_at });
+    }
+
+    if (page.last_seq <= since) {
+      console.warn(`Feed ended at seq ${since} before reaching update_seq ${updateSeq}.`);
+      break;
     }
     since = page.last_seq;
   }

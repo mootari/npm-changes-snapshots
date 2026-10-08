@@ -11,7 +11,7 @@ permissions:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,16 +19,6 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm run typecheck
-      - id: snapshot
-        run: npm run snapshot
+      - run: npm run snapshot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: >
-          gh release create "${{ steps.snapshot.outputs.tag }}"
-          "out/changes-${{ steps.snapshot.outputs.date }}.parquet"
-          out/manifest.json
-          $(test -f out/delta.json && echo out/delta.json)
-          --title "npm changes snapshot ${{ steps.snapshot.outputs.date }}"
-          --notes-file out/notes.md
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
