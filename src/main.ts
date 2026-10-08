@@ -21,13 +21,14 @@ function logMemory(label: string): void {
   const { heapUsed, rss } = process.memoryUsage();
   const heapLimit = getHeapStatistics().heap_size_limit;
   const systemLimit = process.constrainedMemory() || totalmem();
-  const heap = `${MiB(heapUsed)} / ${MiB(heapLimit)} (${(heapUsed / heapLimit * 100).toFixed(1)}%)`;
-  const system = `${MiB(rss)} / ${MiB(systemLimit)} (${(rss / systemLimit * 100).toFixed(1)}%)`;
-  console.log(`Memory ${label}: heap ${heap}, rss ${system}`);
+  console.log(
+    `Memory ${label}: heap ${MiB(heapUsed)} / ${MiB(heapLimit)} (${(heapUsed / heapLimit * 100).toFixed(1)}%), ` +
+      `rss ${MiB(rss)} / ${MiB(systemLimit)} (${(rss / systemLimit * 100).toFixed(1)}%)`,
+  );
 }
 
 async function writeJson(path: string, data: unknown): Promise<void> {
-  await writeFile(path, JSON.stringify(data, null, 2) + "\n");
+  await writeFile(path, JSON.stringify(data) + "\n");
 }
 
 await mkdir(PREVIOUS_DIR, { recursive: true });
