@@ -1,11 +1,33 @@
 import { DuckDBDataChunkWriter, DuckDBInstance, JSToDuckDBValueConverter } from "@duckdb/node-api";
+import * as v from "valibot";
 import type { Entry } from "./feed.ts";
 
 export type SnapshotRef = { tag: string; time: string };
 
+const Count = v.pipe(v.number(), v.safeInteger());
+const RevNumber = v.nullable(Count);
+
+/** Counts and rev number distribution of a snapshot. Rev numbers are null for an empty snapshot. */
+export const StatsSchema = v.object({
+  deleted_entries: Count,
+  not_deleted_entries: Count,
+  rev_min: RevNumber,
+  rev_max: RevNumber,
+  rev_p50: RevNumber,
+  rev_p90: RevNumber,
+  rev_p95: RevNumber,
+  rev_p99: RevNumber,
+});
+
+export type Stats = v.InferOutput<typeof StatsSchema>;
+
+/** Difference between two snapshots' stats (current minus previous). */
+export type StatsDelta = { [K in keyof Stats]: number };
+
 export type Delta = {
   previous: SnapshotRef | null;
   current: SnapshotRef;
+  stats: StatsDelta;
   missing: number;
   added: number;
   updated_seq_changed: number;
@@ -28,6 +50,44 @@ export async function writeParquet(entries: Iterable<Entry>, path: string): Prom
   await connection.run("COPY (SELECT * FROM entries ORDER BY id) TO $path (FORMAT parquet, COMPRESSION zstd)", { path });
 }
 
+/** Rev numbers are the part of a rev before the hash, e.g. 12 for "12-abc". */
+export async function computeStats(path: string): Promise<Stats> {
+  const connection = await (await DuckDBInstance.create()).connect();
+  const reader = await connection.runAndReadAll(
+    `SELECT
+      count(*) FILTER (WHERE deleted) AS deleted_entries,
+      count(*) FILTER (WHERE NOT deleted) AS not_deleted_entries,
+      min(n) AS rev_min,
+      max(n) AS rev_max,
+      percentile_disc(0.5) WITHIN GROUP (ORDER BY n) AS rev_p50,
+      percentile_disc(0.9) WITHIN GROUP (ORDER BY n) AS rev_p90,
+      percentile_disc(0.95) WITHIN GROUP (ORDER BY n) AS rev_p95,
+      percentile_disc(0.99) WITHIN GROUP (ORDER BY n) AS rev_p99
+    FROM (SELECT deleted, CAST(split_part(rev, '-', 1) AS BIGINT) AS n FROM read_parquet($path))`,
+    { path },
+  );
+  const row = reader.getRowObjectsJson()[0];
+  const num = (value: unknown) => (value === null ? null : Number(value));
+  return {
+    deleted_entries: Number(row.deleted_entries),
+    not_deleted_entries: Number(row.not_deleted_entries),
+    rev_min: num(row.rev_min),
+    rev_max: num(row.rev_max),
+    rev_p50: num(row.rev_p50),
+    rev_p90: num(row.rev_p90),
+    rev_p95: num(row.rev_p95),
+    rev_p99: num(row.rev_p99),
+  };
+}
+
+/** Missing values, such as those of an absent previous snapshot, count as 0. */
+export function diffStats(previous: Stats | null, current: Stats): StatsDelta {
+  const keys = Object.keys(current) as (keyof Stats)[];
+  return Object.fromEntries(
+    keys.map((key) => [key, (current[key] ?? 0) - (previous?.[key] ?? 0)]),
+  ) as StatsDelta;
+}
+
 /**
  * Compares two snapshots by id. An id counts as updated without a seq change
  * when its seq is equal but its rev or deleted flag differs.
@@ -37,6 +97,7 @@ export async function compareSnapshots(
   currentPath: string,
   previous: SnapshotRef | null,
   current: SnapshotRef,
+  stats: StatsDelta,
 ): Promise<Delta> {
   const connection = await (await DuckDBInstance.create()).connect();
   const reader = await connection.runAndReadAll(
@@ -55,6 +116,7 @@ export async function compareSnapshots(
   return {
     previous,
     current,
+    stats,
     missing: Number(row.missing),
     added: Number(row.added),
     updated_seq_changed: Number(row.updated_seq_changed),

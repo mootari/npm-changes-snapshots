@@ -1,16 +1,18 @@
 import { getHeapStatistics } from "node:v8";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import * as v from "valibot";
 import { parseConfig } from "./config.ts";
 import { fetchChanges, fetchFeedState } from "./feed.ts";
-import { createOctokit, createRelease, downloadLatestAsset } from "./github.ts";
+import { createOctokit, createRelease, downloadLatestAssets } from "./github.ts";
 import { renderNotes, type Manifest } from "./notes.ts";
-import { compareSnapshots, writeParquet } from "./parquet.ts";
+import { compareSnapshots, computeStats, diffStats, StatsSchema, writeParquet } from "./parquet.ts";
 
 const config = parseConfig(process.env);
 const OUT_DIR = config.outDir;
 const PREVIOUS_DIR = join(OUT_DIR, "previous");
 const SNAPSHOT_FILE = "changes.parquet";
+const MANIFEST_FILE = "manifest.json";
 
 const MiB = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MiB`;
 
@@ -42,33 +44,46 @@ logMemory("after fetch");
 // 3. Final state
 const final = await fetchFeedState(config.feedUrl);
 
-// 4. Manifest
+// 4. Parquet
+const currentFile = join(OUT_DIR, SNAPSHOT_FILE);
+await writeParquet(entries.values(), currentFile);
+
+// 5. Manifest
 const manifest: Manifest = {
   start,
   final,
   pages,
   fetched_entries: fetchedEntries,
   stored_entries: entries.size,
+  stats: await computeStats(currentFile),
 };
-const manifestFile = join(OUT_DIR, "manifest.json");
+const manifestFile = join(OUT_DIR, MANIFEST_FILE);
 await writeJson(manifestFile, manifest);
-
-// 5. Parquet
-const currentFile = join(OUT_DIR, SNAPSHOT_FILE);
-await writeParquet(entries.values(), currentFile);
 
 // 6. Previous snapshot
 const { repository, draft } = config;
 const octokit = createOctokit(config.token);
 const previousFile = join(PREVIOUS_DIR, SNAPSHOT_FILE);
-const previous = repository ? await downloadLatestAsset(octokit, repository, SNAPSHOT_FILE, previousFile) : null;
+const previousManifestFile = join(PREVIOUS_DIR, MANIFEST_FILE);
+const previous = repository
+  ? await downloadLatestAssets(octokit, repository, {
+      [SNAPSHOT_FILE]: previousFile,
+      [MANIFEST_FILE]: previousManifestFile,
+    })
+  : null;
 if (!previous) {
   console.warn("No previous snapshot found, comparing against an empty dataset.");
   await writeParquet([], previousFile);
 }
 
 // 7. Delta
-const delta = await compareSnapshots(previousFile, currentFile, previous, { tag, time: start.time });
+// Previous stats are missing without a previous snapshot, or if its manifest predates stats.
+// Missing values count as 0.
+const previousManifest = previous
+  ? v.safeParse(v.object({ stats: StatsSchema }), JSON.parse(await readFile(previousManifestFile, "utf8")))
+  : null;
+const statsDelta = diffStats(previousManifest?.success ? previousManifest.output.stats : null, manifest.stats);
+const delta = await compareSnapshots(previousFile, currentFile, previous, { tag, time: start.time }, statsDelta);
 const deltaFile = join(OUT_DIR, "delta.json");
 await writeJson(deltaFile, delta);
 
