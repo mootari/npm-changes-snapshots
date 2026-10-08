@@ -13,8 +13,6 @@ const OUT_DIR = config.outDir;
 const PREVIOUS_DIR = join(OUT_DIR, "previous");
 const SNAPSHOT_FILE = "changes.parquet";
 
-const tagFor = (date: string) => `snapshot-${date}`;
-
 const MiB = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MiB`;
 
 function logMemory(label: string): void {
@@ -35,7 +33,8 @@ await mkdir(PREVIOUS_DIR, { recursive: true });
 
 // 1. Start state
 const start = await fetchFeedState(config.feedUrl);
-const date = start.time.slice(0, 10);
+const formattedTime = start.time.slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+const tag = `snapshot-${formattedTime}`;
 
 // 2. Changes
 logMemory("before fetch");
@@ -71,7 +70,7 @@ if (!previous) {
 }
 
 // 7. Delta
-const delta = await compareSnapshots(previousFile, currentFile, previous, { tag: tagFor(date), time: start.time });
+const delta = await compareSnapshots(previousFile, currentFile, previous, { tag, time: start.time });
 const deltaFile = join(OUT_DIR, "delta.json");
 await writeJson(deltaFile, delta);
 
@@ -82,11 +81,11 @@ if (repository) {
   await createRelease(
     octokit,
     repository,
-    { tag: tagFor(date), title: `npm changes snapshot ${date}`, notes, draft },
+    { tag, title: `npm changes snapshot ${formattedTime}`, notes, draft },
     [currentFile, manifestFile, deltaFile],
   );
 } else {
   console.warn("GITHUB_REPOSITORY is not set, skipping release.");
 }
 
-console.log(`Snapshot ${date}: ${entries.size} entries from ${pages} pages.`);
+console.log(`Snapshot ${formattedTime}: ${entries.size} entries from ${pages} pages.`);

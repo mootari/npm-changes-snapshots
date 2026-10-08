@@ -7,9 +7,7 @@ const MAX_ATTEMPTS = 5;
 
 const Seq = v.pipe(v.number(), v.safeInteger());
 
-const FeedStateSchema = v.looseObject({
-  db_name: v.string(),
-  engine: v.string(),
+const FeedStateSchema = v.object({
   doc_count: v.number(),
   update_seq: Seq,
 });

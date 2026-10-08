@@ -12,8 +12,6 @@ export type Delta = {
   updated_seq_unchanged: number;
 };
 
-const quote = (path: string) => `'${path.replaceAll("'", "''")}'`;
-
 /** Writes entries ordered by id to a ZSTD-compressed Parquet file. */
 export async function writeParquet(entries: Iterable<Entry>, path: string): Promise<void> {
   const connection = await (await DuckDBInstance.create()).connect();
@@ -27,9 +25,7 @@ export async function writeParquet(entries: Iterable<Entry>, path: string): Prom
   }
   writer.flush();
   appender.closeSync();
-  await connection.run(
-    `COPY (SELECT * FROM entries ORDER BY id) TO ${quote(path)} (FORMAT parquet, COMPRESSION zstd)`,
-  );
+  await connection.run("COPY (SELECT * FROM entries ORDER BY id) TO $path (FORMAT parquet, COMPRESSION zstd)", { path });
 }
 
 /**
@@ -43,17 +39,18 @@ export async function compareSnapshots(
   current: SnapshotRef,
 ): Promise<Delta> {
   const connection = await (await DuckDBInstance.create()).connect();
-  const reader = await connection.runAndReadAll(`
-    SELECT
+  const reader = await connection.runAndReadAll(
+    `SELECT
       count(*) FILTER (WHERE n.id IS NULL) AS missing,
       count(*) FILTER (WHERE o.id IS NULL) AS added,
       count(*) FILTER (WHERE o.seq <> n.seq) AS updated_seq_changed,
       count(*) FILTER (
         WHERE o.seq = n.seq AND (o.rev IS DISTINCT FROM n.rev OR o.deleted IS DISTINCT FROM n.deleted)
       ) AS updated_seq_unchanged
-    FROM read_parquet(${quote(previousPath)}) o
-    FULL OUTER JOIN read_parquet(${quote(currentPath)}) n ON o.id = n.id
-  `);
+    FROM read_parquet($previousPath) o
+    FULL OUTER JOIN read_parquet($currentPath) n ON o.id = n.id`,
+    { previousPath, currentPath },
+  );
   const row = reader.getRowObjectsJson()[0];
   return {
     previous,

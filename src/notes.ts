@@ -55,7 +55,7 @@ export function renderNotes(manifest: Manifest, delta: Delta): string {
         },
         [delta],
       ),
-      "Updated entries have a new sequence number. Retroactively changed entries differ from the previous snapshot without a new sequence number.",
+      "<small>Updated entries have a new sequence number. Retroactively changed entries differ from the previous snapshot without a new sequence number.</small>",
     ].join("\n\n") + "\n"
   );
 }
