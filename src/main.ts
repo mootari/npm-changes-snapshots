@@ -1,4 +1,6 @@
+import { getHeapStatistics } from "node:v8";
 import { mkdir, writeFile } from "node:fs/promises";
+import { totalmem } from "node:os";
 import { join } from "node:path";
 import { fetchChanges, fetchFeedState } from "./feed.ts";
 import { createRelease, downloadLatestAsset } from "./github.ts";
@@ -13,6 +15,18 @@ const SNAPSHOT_FILE = "changes.parquet";
 
 const tagFor = (date: string) => `snapshot-${date}`;
 
+const MiB = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MiB`;
+
+function logMemory(label: string): void {
+  const { heapUsed, rss } = process.memoryUsage();
+  const heapLimit = getHeapStatistics().heap_size_limit;
+  const systemLimit = process.constrainedMemory() || totalmem();
+  console.log(
+    `Memory ${label}: heap ${MiB(heapUsed)} / ${MiB(heapLimit)} (${(heapUsed / heapLimit * 100).toFixed(1)}%), ` +
+      `rss ${MiB(rss)} / ${MiB(systemLimit)} (${(rss / systemLimit * 100).toFixed(1)}%)`,
+  );
+}
+
 async function writeJson(path: string, data: unknown): Promise<void> {
   await writeFile(path, JSON.stringify(data, null, 2) + "\n");
 }
@@ -24,7 +38,9 @@ const start = await fetchFeedState(FEED_URL);
 const date = start.time.slice(0, 10);
 
 // 2. Changes
+logMemory("before fetch");
 const { entries, pages, fetchedEntries } = await fetchChanges(start.state.update_seq, CHANGES_URL);
+logMemory("after fetch");
 
 // 3. Final state
 const final = await fetchFeedState(FEED_URL);
@@ -45,7 +61,9 @@ const currentFile = join(OUT_DIR, SNAPSHOT_FILE);
 await writeParquet(entries.values(), currentFile);
 
 // 6. Previous snapshot
-const repository = process.env.GITHUB_REPOSITORY;
+const [owner, repo] = process.env.GITHUB_REPOSITORY?.split("/") ?? [];
+const repository = owner && repo ? { owner, repo } : null;
+const draft = process.env.DRAFT === "true";
 const previousFile = join(PREVIOUS_DIR, SNAPSHOT_FILE);
 const previous = repository ? await downloadLatestAsset(repository, SNAPSHOT_FILE, previousFile) : null;
 if (!previous) {
@@ -64,7 +82,7 @@ await writeFile(join(OUT_DIR, "notes.md"), notes);
 if (repository) {
   await createRelease(
     repository,
-    { tag: tagFor(date), title: `npm changes snapshot ${date}`, notes },
+    { tag: tagFor(date), title: `npm changes snapshot ${date}`, notes, draft },
     [currentFile, manifestFile, deltaFile],
   );
 } else {

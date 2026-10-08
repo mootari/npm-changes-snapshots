@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      draft:
+        description: Draft
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -21,3 +26,4 @@ jobs:
       - run: npm run snapshot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
