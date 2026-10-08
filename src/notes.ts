@@ -20,17 +20,24 @@ function table<T extends Record<string, unknown>>(headers: NoInfer<{ [K in keyof
   ].join("\n");
 }
 
+/** Formats an ISO timestamp as `YYYY-MM-DD HH:MM:SS UTC`; falls back to the raw value if unparsable. */
+function formatTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${date.toISOString().slice(0, 19).replace("T", " ")} UTC`;
+}
+
 export function renderNotes(manifest: Manifest, delta: Delta): string {
   const feedState = (label: string, { time, state }: StateRecord) => ({
     label,
-    time,
+    time: formatTime(time),
     documents: state.doc_count,
     sequence: state.update_seq,
   });
   const snapshot = (label: string, ref: SnapshotRef | null) => ({
     label,
-    tag: ref?.tag ?? "none",
-    time: ref?.time ?? "-",
+    tag: ref?.tag ?? "-",
+    time: ref ? formatTime(ref.time) : "-",
   });
 
   return (
@@ -55,7 +62,7 @@ export function renderNotes(manifest: Manifest, delta: Delta): string {
         },
         [delta],
       ),
-      "<small>Updated entries have a new sequence number. Retroactively changed entries differ from the previous snapshot without a new sequence number.</small>",
+      "*Updated entries have a new sequence number. Retroactively changed entries differ from the previous snapshot without a new sequence number.*",
     ].join("\n\n") + "\n"
   );
 }
