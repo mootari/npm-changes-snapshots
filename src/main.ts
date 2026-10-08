@@ -7,7 +7,7 @@ import { parseConfig } from "./config.ts";
 import { fetchChanges, fetchFeedState } from "./feed.ts";
 import { createOctokit, createRelease, downloadLatestAssets } from "./github.ts";
 import { renderNotes, type Manifest } from "./notes.ts";
-import { compareSnapshots, computeStats, diffStats, StatsSchema, writeParquet, type Stats } from "./parquet.ts";
+import { compareSnapshots, computeStats, diffStats, StatsSchema, writeParquet } from "./parquet.ts";
 
 const config = parseConfig(process.env);
 const OUT_DIR = config.outDir;
@@ -79,23 +79,12 @@ if (!previous) {
 }
 
 // 7. Delta
-// Without a previous snapshot the stats are compared against an empty dataset. Releases made before
-// stats were added to the manifest have no previous stats to compare against.
-const emptyStats: Stats = {
-  deleted_entries: 0,
-  not_deleted_entries: 0,
-  rev_min: null,
-  rev_max: null,
-  rev_p50: null,
-  rev_p90: null,
-  rev_p95: null,
-  rev_p99: null,
-};
+// Previous stats are missing without a previous snapshot, or if its manifest predates stats.
+// Missing values count as 0.
 const previousManifest = previous
   ? v.safeParse(v.object({ stats: StatsSchema }), JSON.parse(await readFile(previousManifestFile, "utf8")))
   : null;
-const previousStats = previousManifest ? (previousManifest.success ? previousManifest.output.stats : null) : emptyStats;
-const statsDelta = previousStats ? diffStats(previousStats, manifest.stats) : null;
+const statsDelta = diffStats(previousManifest?.success ? previousManifest.output.stats : null, manifest.stats);
 const delta = await compareSnapshots(previousFile, currentFile, previous, { tag, time: start.time }, statsDelta);
 const deltaFile = join(OUT_DIR, "delta.json");
 await writeJson(deltaFile, delta);

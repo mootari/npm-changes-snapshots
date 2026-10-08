@@ -21,13 +21,13 @@ export const StatsSchema = v.object({
 
 export type Stats = v.InferOutput<typeof StatsSchema>;
 
-/** Difference between two snapshots' stats (current minus previous), null where either side has no value. */
-export type StatsDelta = { [K in keyof Stats]: number | null };
+/** Difference between two snapshots' stats (current minus previous). */
+export type StatsDelta = { [K in keyof Stats]: number };
 
 export type Delta = {
   previous: SnapshotRef | null;
   current: SnapshotRef;
-  stats: StatsDelta | null;
+  stats: StatsDelta;
   missing: number;
   added: number;
   updated_seq_changed: number;
@@ -80,10 +80,11 @@ export async function computeStats(path: string): Promise<Stats> {
   };
 }
 
-export function diffStats(previous: Stats, current: Stats): StatsDelta {
+/** Missing values, such as those of an absent previous snapshot, count as 0. */
+export function diffStats(previous: Stats | null, current: Stats): StatsDelta {
   const keys = Object.keys(current) as (keyof Stats)[];
   return Object.fromEntries(
-    keys.map((key) => [key, previous[key] === null || current[key] === null ? null : current[key] - previous[key]]),
+    keys.map((key) => [key, (current[key] ?? 0) - (previous?.[key] ?? 0)]),
   ) as StatsDelta;
 }
 
@@ -96,7 +97,7 @@ export async function compareSnapshots(
   currentPath: string,
   previous: SnapshotRef | null,
   current: SnapshotRef,
-  stats: StatsDelta | null,
+  stats: StatsDelta,
 ): Promise<Delta> {
   const connection = await (await DuckDBInstance.create()).connect();
   const reader = await connection.runAndReadAll(

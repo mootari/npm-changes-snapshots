@@ -69,7 +69,7 @@ export function renderNotes(manifest: Manifest, delta: Delta): string {
         snapshot("Previous", delta.previous),
         snapshot("Current", delta.current),
       ]),
-      ...(delta.stats ? [table(statsHeaders, [statsRow(delta.stats)])] : []),
+      table(statsHeaders, [statsRow(delta.stats)]),
       table(
         {
           added: "Added",
