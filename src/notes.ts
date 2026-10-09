@@ -36,6 +36,21 @@ function table(rows: Row[]): string {
   ].join("\n");
 }
 
+/** Renders label/value pairs as an HTML table, for metrics that only exist as a delta between snapshots. */
+function deltaTable(rows: Pick<Row, "label" | "delta">[]): string {
+  return [
+    "<table>",
+    '<thead><tr><td></td><th scope="col" align="right">Delta</th></tr></thead>',
+    "<tbody>",
+    ...rows.map(
+      ({ label, delta }) =>
+        `<tr><th scope="row" align="left">${escapeHtml(label)}</th><td align="right">${escapeHtml(delta ?? "")}</td></tr>`,
+    ),
+    "</tbody>",
+    "</table>",
+  ].join("\n");
+}
+
 const numberFormat = new Intl.NumberFormat("en-US");
 const deltaFormat = new Intl.NumberFormat("en-US", { signDisplay: "exceptZero" });
 
@@ -51,8 +66,8 @@ const metric = (
 ): Row => ({ label, previous: count(previous), current: count(current), delta: deltaFormat.format(delta) });
 
 const statsLabels: Record<keyof Stats, string> = {
-  deleted_entries: "Deleted",
-  not_deleted_entries: "Not deleted",
+  deleted_entries: "Marked as deleted",
+  not_deleted_entries: "Not marked as deleted",
   rev_min: "Rev min",
   rev_p50: "Rev p50",
   rev_p90: "Rev p90",
@@ -97,10 +112,6 @@ export function renderNotes(manifest: Manifest, delta: Delta, previous: Manifest
 
   const rows: Row[] = [
     { label: "Release", previous: delta.previous?.tag ?? "-", current: delta.current.tag },
-    { label: "Added", delta: count(delta.added) },
-    { label: "Missing", delta: count(delta.missing) },
-    { label: "Updated", delta: count(delta.updated_seq_changed) },
-    { label: "Retroactively changed", delta: count(delta.updated_seq_unchanged) },
     ...(Object.entries(statsLabels) as [keyof Stats, string][]).map(([key, label]) =>
       metric(label, previous?.stats[key], stats[key], delta.stats[key]),
     ),
@@ -116,10 +127,18 @@ export function renderNotes(manifest: Manifest, delta: Delta, previous: Manifest
     metric("Entries discarded", previous && discarded(previous), discarded(manifest)),
   ];
 
+  const changes = [
+    { label: "Added", delta: count(delta.added) },
+    { label: "Missing", delta: count(delta.missing) },
+    { label: "Updated", delta: count(delta.updated_seq_changed) },
+    { label: "Retroactively changed", delta: count(delta.updated_seq_unchanged) },
+  ];
+
   return (
     [
       "Snapshot of the most recent [npm replication feed](https://replicate.npmjs.com/) entry of every package, compared to the previous snapshot.",
       table(rows),
+      deltaTable(changes),
       [
         "- The feed state is recorded before the fetch (start) and after it (final). Changes are fetched only up to the start sequence, even if the final sequence has increased in the meantime. Entries updated during the fetch are discarded.",
         "- Updated entries have a new sequence number. Entries are counted as retroactively changed if any of their fields change without updating the sequence number.",
