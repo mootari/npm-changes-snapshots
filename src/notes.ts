@@ -83,6 +83,8 @@ function formatElapsed(from: string, to: string): string {
   return `${diff < 0 ? "-" : ""}${parts.join(" ")}`;
 }
 
+const total = ({ deleted_entries, not_deleted_entries }: Stats) => deleted_entries + not_deleted_entries;
+
 const discarded = (manifest: Manifest) => manifest.fetched_entries - manifest.stored_entries;
 
 /** `previous` is null if there is no previous snapshot, or if its manifest is unreadable. */
@@ -97,6 +99,7 @@ export function renderNotes(manifest: Manifest, delta: Delta, previous: Manifest
 
   const rows: Row[] = [
     { label: "Release", previous: delta.previous?.tag ?? "-", current: delta.current.tag },
+    metric("Entries", previous && total(previous.stats), total(stats)),
     { label: "Added", delta: count(delta.added) },
     { label: "Missing", delta: count(delta.missing) },
     { label: "Updated", delta: count(delta.updated_seq_changed) },
