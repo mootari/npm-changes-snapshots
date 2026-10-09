@@ -98,6 +98,9 @@ function formatElapsed(from: string, to: string): string {
   return `${diff < 0 ? "-" : ""}${parts.join(" ")}`;
 }
 
+/** Entries fetched but not stored, because a later entry for the same id replaced them. */
+const discarded = (manifest: Manifest) => manifest.fetched_entries - manifest.stored_entries;
+
 /** `previous` is null if there is no previous snapshot, or if its manifest is unreadable. */
 export function renderNotes(manifest: Manifest, delta: Delta, previous: Manifest | null): string {
   const { start, final, stats } = manifest;
@@ -121,6 +124,7 @@ export function renderNotes(manifest: Manifest, delta: Delta, previous: Manifest
     metric("Pages fetched", previous?.pages, manifest.pages),
     metric("Entries fetched", previous?.fetched_entries, manifest.fetched_entries),
     metric("Entries stored", previous?.stored_entries, manifest.stored_entries),
+    metric("Entries discarded", previous && discarded(previous), discarded(manifest)),
   ];
 
   const changes = [
@@ -136,7 +140,7 @@ export function renderNotes(manifest: Manifest, delta: Delta, previous: Manifest
       table(rows),
       deltaTable(changes),
       [
-        "- The feed state is recorded before the fetch (start). The changes feed is then fetched until a page has fewer results than the page limit. The final sequence and time are those of the last page fetched, so entries updated during the fetch are included.",
+        "- The feed state is recorded before the fetch (start). The changes feed is then fetched until a page has fewer results than the page limit. The final sequence and time are those of the last page fetched, so entries updated during the fetch are included. Only the latest entry of every id is stored; earlier entries for the same id are discarded.",
         "- Updated entries have a new sequence number. Entries are counted as retroactively changed if any of their fields change without updating the sequence number.",
         "- Entries are expected to only be added or updated. None should be retroactively changed, and none should be missing.",
       ].join("\n"),
