@@ -1,4 +1,6 @@
-name: Daily snapshot
+name: Create snapshot and release
+
+run-name: Create ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'scheduled' }} snapshot and ${{ github.event_name == 'workflow_dispatch' && inputs.draft && 'draft ' || '' }}release
 
 on:
   schedule:
