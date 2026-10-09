@@ -12,6 +12,11 @@ const FeedStateSchema = v.object({
   update_seq: Seq,
 });
 
+export const StateRecordSchema = v.object({
+  time: v.string(),
+  state: FeedStateSchema,
+});
+
 const ChangeSchema = v.pipe(
   v.object({
     seq: Seq,
@@ -30,10 +35,7 @@ const ChangesPageSchema = v.object({
 export type FeedState = v.InferOutput<typeof FeedStateSchema>;
 export type Entry = v.InferOutput<typeof ChangeSchema> & { fetched_at: Date };
 
-export interface StateRecord {
-  time: string;
-  state: FeedState;
-}
+export type StateRecord = v.InferOutput<typeof StateRecordSchema>;
 
 export interface ChangesResult {
   entries: Map<string, Entry>;

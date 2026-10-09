@@ -1,14 +1,17 @@
-import type { StateRecord } from "./feed.ts";
-import type { Delta, Stats } from "./parquet.ts";
+import * as v from "valibot";
+import { StateRecordSchema } from "./feed.ts";
+import { StatsSchema, type Delta, type Stats } from "./parquet.ts";
 
-export type Manifest = {
-  start: StateRecord;
-  final: StateRecord;
-  pages: number;
-  fetched_entries: number;
-  stored_entries: number;
-  stats: Stats;
-};
+export const ManifestSchema = v.object({
+  start: StateRecordSchema,
+  final: StateRecordSchema,
+  pages: v.number(),
+  fetched_entries: v.number(),
+  stored_entries: v.number(),
+  stats: StatsSchema,
+});
+
+export type Manifest = v.InferOutput<typeof ManifestSchema>;
 
 /** Cells are left blank where a row has no value for a column. */
 type Row = { label: string; previous?: string; current?: string; delta?: string };
@@ -26,7 +29,7 @@ function table(rows: Row[]): string {
     "<tbody>",
     ...rows.map(
       ({ label, previous, current, delta }) =>
-        `<tr><th scope="row" align="left">${label}</th>${cell(previous)}${cell(current)}${cell(delta)}</tr>`,
+        `<tr><th scope="row" align="left">${escapeHtml(label)}</th>${cell(previous)}${cell(current)}${cell(delta)}</tr>`,
     ),
     "</tbody>",
     "</table>",
@@ -36,8 +39,16 @@ function table(rows: Row[]): string {
 const numberFormat = new Intl.NumberFormat("en-US");
 const deltaFormat = new Intl.NumberFormat("en-US", { signDisplay: "exceptZero" });
 
-/** Formats a number with thousand separators; null becomes `-`. */
-const count = (value: number | null) => (value === null ? "-" : numberFormat.format(value));
+/** Formats a number with thousand separators; a missing value becomes `-`. */
+const count = (value: number | null | undefined) => (value == null ? "-" : numberFormat.format(value));
+
+/** A numeric row. Unless given, the delta is the difference between the values, with missing values counting as 0. */
+const metric = (
+  label: string,
+  previous: number | null | undefined,
+  current: number | null,
+  delta = (current ?? 0) - (previous ?? 0),
+): Row => ({ label, previous: count(previous), current: count(current), delta: deltaFormat.format(delta) });
 
 const statsLabels: Record<keyof Stats, string> = {
   deleted_entries: "Deleted",
@@ -57,33 +68,36 @@ function formatTime(iso: string): string {
   return `${date.toISOString().slice(0, 19).replace("T", " ")} UTC`;
 }
 
-/** `previousStats` is null if there is no previous snapshot, or if its manifest predates stats. */
-export function renderNotes(manifest: Manifest, delta: Delta, previousStats: Stats | null): string {
+const discarded = (manifest: Manifest) => manifest.fetched_entries - manifest.stored_entries;
+
+/** `previous` is null if there is no previous snapshot, or if its manifest is unreadable. */
+export function renderNotes(manifest: Manifest, delta: Delta, previous: Manifest | null): string {
   const { start, final, stats } = manifest;
-  const { previous, current } = delta;
+  const time = (label: string, previousTime: string | undefined, currentTime: string): Row => ({
+    label,
+    previous: previousTime ? formatTime(previousTime) : "-",
+    current: formatTime(currentTime),
+  });
 
   const rows: Row[] = [
-    { label: "Release", previous: previous?.tag ?? "-", current: current.tag },
-    { label: "Time", previous: previous ? formatTime(previous.time) : "-", current: formatTime(current.time) },
+    { label: "Release", previous: delta.previous?.tag ?? "-", current: delta.current.tag },
     { label: "Added", delta: count(delta.added) },
-    { label: "Removed", delta: count(delta.missing) },
+    { label: "Missing", delta: count(delta.missing) },
     { label: "Updated", delta: count(delta.updated_seq_changed) },
     { label: "Retroactively changed", delta: count(delta.updated_seq_unchanged) },
-    ...(Object.entries(statsLabels) as [keyof Stats, string][]).map(([key, label]) => ({
-      label,
-      previous: previousStats ? count(previousStats[key]) : "-",
-      current: count(stats[key]),
-      delta: deltaFormat.format(delta.stats[key]),
-    })),
-    { label: "Start sequence", current: count(start.state.update_seq) },
-    { label: "Start documents", current: count(start.state.doc_count) },
-    { label: "Final time", current: formatTime(final.time) },
-    { label: "Final sequence", current: count(final.state.update_seq) },
-    { label: "Final documents", current: count(final.state.doc_count) },
-    { label: "Pages fetched", current: count(manifest.pages) },
-    { label: "Entries fetched", current: count(manifest.fetched_entries) },
-    { label: "Entries stored", current: count(manifest.stored_entries) },
-    { label: "Entries discarded", current: count(manifest.fetched_entries - manifest.stored_entries) },
+    ...(Object.entries(statsLabels) as [keyof Stats, string][]).map(([key, label]) =>
+      metric(label, previous?.stats[key], stats[key], delta.stats[key]),
+    ),
+    time("Start time", previous?.start.time, start.time),
+    metric("Start sequence", previous?.start.state.update_seq, start.state.update_seq),
+    metric("Start documents", previous?.start.state.doc_count, start.state.doc_count),
+    time("Final time", previous?.final.time, final.time),
+    metric("Final sequence", previous?.final.state.update_seq, final.state.update_seq),
+    metric("Final documents", previous?.final.state.doc_count, final.state.doc_count),
+    metric("Pages fetched", previous?.pages, manifest.pages),
+    metric("Entries fetched", previous?.fetched_entries, manifest.fetched_entries),
+    metric("Entries stored", previous?.stored_entries, manifest.stored_entries),
+    metric("Entries discarded", previous && discarded(previous), discarded(manifest)),
   ];
 
   return (
@@ -93,7 +107,7 @@ export function renderNotes(manifest: Manifest, delta: Delta, previousStats: Sta
       [
         "- The feed state is recorded before the fetch (start) and after it (final). Changes are fetched only up to the start sequence, even if the final sequence has increased in the meantime. Entries updated during the fetch are discarded.",
         "- Updated entries have a new sequence number. Entries are counted as retroactively changed if any of their fields change without updating the sequence number.",
-        "- Entries are expected to only be added or updated. There should be no removed or retroactively changed entries.",
+        "- Entries are expected to only be added or updated. None should be retroactively changed, and none should be missing unless they were updated during the fetch and discarded.",
       ].join("\n"),
     ].join("\n\n") + "\n"
   );
