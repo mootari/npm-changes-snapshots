@@ -5,8 +5,8 @@ import * as v from "valibot";
 import { parseConfig } from "./config.ts";
 import { fetchChanges, fetchFeedState } from "./feed.ts";
 import { createOctokit, createRelease, downloadLatestAssets } from "./github.ts";
-import { renderNotes, type Manifest } from "./notes.ts";
-import { compareSnapshots, computeStats, diffStats, StatsSchema, writeParquet } from "./parquet.ts";
+import { ManifestSchema, renderNotes, type Manifest } from "./notes.ts";
+import { compareSnapshots, computeStats, diffStats, writeParquet } from "./parquet.ts";
 
 const config = parseConfig(process.env);
 const OUT_DIR = config.outDir;
@@ -77,24 +77,25 @@ if (!previous) {
 }
 
 // 7. Delta
-// Previous stats are missing without a previous snapshot, or if its manifest predates stats.
+// The previous manifest is missing without a previous snapshot, or unreadable if it predates the current format.
 // Missing values count as 0.
-const previousManifest = previous
-  ? v.safeParse(v.object({ stats: StatsSchema }), JSON.parse(await readFile(previousManifestFile, "utf8")))
+const previousParsed = previous
+  ? v.safeParse(ManifestSchema, JSON.parse(await readFile(previousManifestFile, "utf8")))
   : null;
-const statsDelta = diffStats(previousManifest?.success ? previousManifest.output.stats : null, manifest.stats);
+const previousManifest = previousParsed?.success ? previousParsed.output : null;
+const statsDelta = diffStats(previousManifest?.stats ?? null, manifest.stats);
 const delta = await compareSnapshots(previousFile, currentFile, previous, { tag, time: start.time }, statsDelta);
 const deltaFile = join(OUT_DIR, "delta.json");
 await writeJson(deltaFile, delta);
 
 // 8. Release
-const notes = renderNotes(manifest, delta);
+const notes = renderNotes(manifest, delta, previousManifest);
 await writeFile(join(OUT_DIR, "notes.md"), notes);
 if (repository) {
   await createRelease(
     octokit,
     repository,
-    { tag, title: `npm changes snapshot ${formattedTime}`, notes, draft },
+    { tag, title: `Snapshot ${formattedTime}`, notes, draft },
     [currentFile, manifestFile, deltaFile],
   );
 } else {
