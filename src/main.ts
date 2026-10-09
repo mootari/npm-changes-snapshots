@@ -82,19 +82,20 @@ if (!previous) {
 const previousManifest = previous
   ? v.safeParse(v.object({ stats: StatsSchema }), JSON.parse(await readFile(previousManifestFile, "utf8")))
   : null;
-const statsDelta = diffStats(previousManifest?.success ? previousManifest.output.stats : null, manifest.stats);
+const previousStats = previousManifest?.success ? previousManifest.output.stats : null;
+const statsDelta = diffStats(previousStats, manifest.stats);
 const delta = await compareSnapshots(previousFile, currentFile, previous, { tag, time: start.time }, statsDelta);
 const deltaFile = join(OUT_DIR, "delta.json");
 await writeJson(deltaFile, delta);
 
 // 8. Release
-const notes = renderNotes(manifest, delta);
+const notes = renderNotes(manifest, delta, previousStats);
 await writeFile(join(OUT_DIR, "notes.md"), notes);
 if (repository) {
   await createRelease(
     octokit,
     repository,
-    { tag, title: `npm changes snapshot ${formattedTime}`, notes, draft },
+    { tag, title: `Snapshot ${formattedTime}`, notes, draft },
     [currentFile, manifestFile, deltaFile],
   );
 } else {
