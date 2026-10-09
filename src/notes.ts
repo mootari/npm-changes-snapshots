@@ -68,6 +68,21 @@ function formatTime(iso: string): string {
   return `${date.toISOString().slice(0, 19).replace("T", " ")} UTC`;
 }
 
+/**
+ * Formats the time from `from` to `to` as `Nh Nm Ns`, omitting leading units that are 0.
+ * Computed from whole seconds like `formatTime`, so it matches the displayed timestamps; `-` if either is unparsable.
+ */
+function formatElapsed(from: string, to: string): string {
+  const seconds = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
+  const diff = seconds(to) - seconds(from);
+  if (Number.isNaN(diff)) return "-";
+  const abs = Math.abs(diff);
+  const hours = Math.floor(abs / 3600);
+  const minutes = Math.floor(abs / 60) % 60;
+  const parts = [hours && `${hours}h`, (hours || minutes) && `${minutes}m`, `${abs % 60}s`].filter(Boolean);
+  return `${diff < 0 ? "-" : ""}${parts.join(" ")}`;
+}
+
 const discarded = (manifest: Manifest) => manifest.fetched_entries - manifest.stored_entries;
 
 /** `previous` is null if there is no previous snapshot, or if its manifest is unreadable. */
@@ -77,6 +92,7 @@ export function renderNotes(manifest: Manifest, delta: Delta, previous: Manifest
     label,
     previous: previousTime ? formatTime(previousTime) : "-",
     current: formatTime(currentTime),
+    delta: previousTime ? formatElapsed(previousTime, currentTime) : "-",
   });
 
   const rows: Row[] = [
