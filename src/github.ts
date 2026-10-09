@@ -1,5 +1,7 @@
+import { createWriteStream } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { Octokit } from "octokit";
 
 export const createOctokit = (token?: string) => new Octokit({ auth: token });
@@ -16,28 +18,37 @@ export async function downloadLatestAssets(
   dests: Record<string, string>,
 ): Promise<{ tag: string; time: string } | null> {
   // Releases are listed newest first.
-  for await (const { data: releases } of octokit.paginate.iterator(octokit.rest.repos.listReleases, { owner, repo })) {
+  for await (const { data: releases } of octokit.paginate.iterator(octokit.rest.repos.listReleases, { owner, repo, per_page: 10 })) {
     for (const release of releases) {
       if (release.draft) continue;
-      const assets = Object.entries(dests).map(([name, dest]) => ({
-        asset: release.assets.find((a) => a.name === name),
-        dest,
-      }));
-      if (assets.some(({ asset }) => !asset)) continue;
 
-      for (const { asset, dest } of assets) {
-        const download = await octokit.rest.repos.getReleaseAsset({
-          owner,
-          repo,
-          asset_id: asset!.id,
-          headers: { accept: "application/octet-stream" },
-        });
-        await writeFile(dest, Buffer.from(download.data as unknown as ArrayBuffer));
-      }
+      const assetIds = Object.fromEntries(release.assets.map(d => [d.name, d.id]));
+      const matched = Object.entries(dests).map(([name, dest]) => ({ name, dest, id: assetIds[name]}));
+      const missing = matched.filter(d => !d.id).map(d => d.name);
+      if(missing.length) throw new Error(`Release "${release.tag_name}" is missing the following assets: ${missing.join(", ")}`);
+
+      for (const { id, dest } of matched) await downloadAsset(octokit, {repo, owner, id, dest});
       return { tag: release.tag_name, time: release.created_at };
     }
   }
   return null;
+}
+
+async function downloadAsset(octokit: Octokit, {owner, repo, id, dest}: {owner: string, repo: string, id: number, dest: string}): Promise<void> {
+  // Adapted from https://github.com/octokit/types.ts/issues/606
+  const {data} = await octokit.rest.repos.getReleaseAsset({
+    owner,
+    repo,
+    asset_id: id,
+    headers: {
+      accept: "application/octet-stream"
+    },
+    request: {
+      parseSuccessResponseBody: false
+    },
+  });
+  // Octokit types don't account for response options. See https://github.com/octokit/types.ts/issues/606
+  await pipeline(data as unknown as NodeJS.ReadableStream, createWriteStream(dest));
 }
 
 /**

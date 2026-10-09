@@ -21,6 +21,7 @@ const ConfigSchema = v.pipe(
     GITHUB_REPOSITORY: v.optional(RepositorySchema),
     GITHUB_TOKEN: v.optional(v.string()),
     DRAFT: v.optional(Flag, "false"),
+    MAX_PAGES: v.optional(v.pipe(v.string(), v.toNumber(), v.integer())),
   }),
   v.transform((env) => ({
     outDir: env.OUT_DIR,
@@ -29,6 +30,7 @@ const ConfigSchema = v.pipe(
     repository: env.GITHUB_REPOSITORY,
     token: env.GITHUB_TOKEN,
     draft: env.DRAFT,
+    maxPages: env.MAX_PAGES
   })),
 );
 
