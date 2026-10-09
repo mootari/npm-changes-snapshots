@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { StateRecordSchema } from "./feed.ts";
-import { StatsSchema, type ChangeCounts, type Delta, type Stats } from "./parquet.ts";
+import { ChangeCountsSchema, StatsSchema, type Delta, type Stats } from "./parquet.ts";
 
 export const ManifestSchema = v.object({
   start: StateRecordSchema,
@@ -9,6 +9,8 @@ export const ManifestSchema = v.object({
   fetched_entries: v.number(),
   stored_entries: v.number(),
   stats: StatsSchema,
+  /** Absent in manifests that predate it. */
+  changes: v.optional(ChangeCountsSchema),
 });
 
 export type Manifest = v.InferOutput<typeof ManifestSchema>;
@@ -87,16 +89,8 @@ const total = ({ deleted_entries, not_deleted_entries }: Stats) => deleted_entri
 
 const discarded = (manifest: Manifest) => manifest.fetched_entries - manifest.stored_entries;
 
-/**
- * `previous` and `previousCounts` are the manifest and change counts of the previous snapshot.
- * Each is null if there is no previous snapshot, or if its file is unreadable.
- */
-export function renderNotes(
-  manifest: Manifest,
-  delta: Delta,
-  previous: Manifest | null,
-  previousCounts: ChangeCounts | null,
-): string {
+/** `previous` is null if there is no previous snapshot, or if its manifest is unreadable. */
+export function renderNotes(manifest: Manifest, delta: Delta, previous: Manifest | null): string {
   const { start, final, stats } = manifest;
   const time = (label: string, previousTime: string | undefined, currentTime: string): Row => ({
     label,
@@ -108,10 +102,10 @@ export function renderNotes(
   const rows: Row[] = [
     { label: "Release", previous: delta.previous?.tag ?? "-", current: delta.current.tag },
     metric("Entries", previous && total(previous.stats), total(stats)),
-    metric("Added", previousCounts?.added, delta.added),
-    metric("Missing", previousCounts?.missing, delta.missing),
-    metric("Updated", previousCounts?.updated_seq_changed, delta.updated_seq_changed),
-    metric("Retroactively changed", previousCounts?.updated_seq_unchanged, delta.updated_seq_unchanged),
+    metric("Added", previous?.changes?.added, delta.added),
+    metric("Missing", previous?.changes?.missing, delta.missing),
+    metric("Updated", previous?.changes?.updated_seq_changed, delta.updated_seq_changed),
+    metric("Retroactively changed", previous?.changes?.updated_seq_unchanged, delta.updated_seq_unchanged),
     ...(Object.entries(statsLabels) as [keyof Stats, string][]).map(([key, label]) =>
       metric(label, previous?.stats[key], stats[key], delta.stats[key]),
     ),
