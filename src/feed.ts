@@ -37,8 +37,17 @@ export type Entry = v.InferOutput<typeof ChangeSchema> & { fetched_at: Date };
 
 export type StateRecord = v.InferOutput<typeof StateRecordSchema>;
 
+/** The feed's last sequence number, and the time at which the page containing it was requested. */
+export const FinalSchema = v.object({
+  time: v.string(),
+  seq: Seq,
+});
+
+export type Final = v.InferOutput<typeof FinalSchema>;
+
 export interface ChangesResult {
   entries: Map<string, Entry>;
+  final: Final;
   pages: number;
   fetchedEntries: number;
 }
@@ -63,32 +72,35 @@ export async function fetchFeedState(url = FEED_URL): Promise<StateRecord> {
 }
 
 /**
- * Pages through the changes feed until `updateSeq` is reached. Entries past
- * `updateSeq` are discarded, only the latest entry per id is kept.
+ * Pages through the changes feed from the beginning until a page has fewer results than the limit, so entries
+ * updated while fetching are included. Only the latest entry per id is kept.
  */
-export async function fetchChanges(updateSeq: number, url = CHANGES_URL): Promise<ChangesResult> {
+export async function fetchChanges(url = CHANGES_URL): Promise<ChangesResult> {
   const entries = new Map<string, Entry>();
   let since = 0;
   let pages = 0;
   let fetchedEntries = 0;
+  let final: Final;
 
-  while (since < updateSeq) {
+  while (true) {
     const fetched_at = new Date();
     const page = v.parse(ChangesPageSchema, await getJson(`${url}?since=${since}&limit=${PAGE_LIMIT}`));
     pages++;
     fetchedEntries += page.results.length;
+    final = { time: fetched_at.toISOString(), seq: page.last_seq };
 
     for (const change of page.results) {
       // Results are ordered by seq, so later entries replace earlier ones.
-      if (change.seq <= updateSeq) entries.set(change.id, { ...change, fetched_at });
+      entries.set(change.id, { ...change, fetched_at });
     }
 
+    if (page.results.length < PAGE_LIMIT) break;
     if (page.last_seq <= since) {
-      console.warn(`Feed ended at seq ${since} before reaching update_seq ${updateSeq}.`);
+      console.warn(`Feed stalled at seq ${since} with a full page.`);
       break;
     }
     since = page.last_seq;
   }
 
-  return { entries, pages, fetchedEntries };
+  return { entries, final, pages, fetchedEntries };
 }
