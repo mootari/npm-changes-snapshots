@@ -6,13 +6,14 @@ import { parseConfig } from "./config.ts";
 import { fetchChanges, fetchFeedState } from "./feed.ts";
 import { createOctokit, createRelease, downloadLatestAssets } from "./github.ts";
 import { ManifestSchema, renderNotes, type Manifest } from "./notes.ts";
-import { compareSnapshots, computeStats, diffStats, writeParquet } from "./parquet.ts";
+import { ChangeCountsSchema, compareSnapshots, computeStats, diffStats, writeParquet } from "./parquet.ts";
 
 const config = parseConfig(process.env);
 const OUT_DIR = config.outDir;
 const PREVIOUS_DIR = join(OUT_DIR, "previous");
 const SNAPSHOT_FILE = "changes.parquet";
 const MANIFEST_FILE = "manifest.json";
+const DELTA_FILE = "delta.json";
 
 const MiB = (bytes: number) => `${(bytes / 2 ** 20).toFixed(0)} MiB`;
 
@@ -65,10 +66,12 @@ const { repository, draft } = config;
 const octokit = createOctokit(config.token);
 const previousFile = join(PREVIOUS_DIR, SNAPSHOT_FILE);
 const previousManifestFile = join(PREVIOUS_DIR, MANIFEST_FILE);
+const previousDeltaFile = join(PREVIOUS_DIR, DELTA_FILE);
 const previous = repository
   ? await downloadLatestAssets(octokit, repository, {
       [SNAPSHOT_FILE]: previousFile,
       [MANIFEST_FILE]: previousManifestFile,
+      [DELTA_FILE]: previousDeltaFile,
     })
   : null;
 if (!previous) {
@@ -77,19 +80,22 @@ if (!previous) {
 }
 
 // 7. Delta
-// The previous manifest is missing without a previous snapshot, or unreadable if it predates the current format.
-// Missing values count as 0.
-const previousParsed = previous
-  ? v.safeParse(ManifestSchema, JSON.parse(await readFile(previousManifestFile, "utf8")))
-  : null;
-const previousManifest = previousParsed?.success ? previousParsed.output : null;
+// The previous manifest and delta are missing without a previous snapshot, or unreadable if they predate the current
+// format. Missing values count as 0.
+const readPrevious = async <T extends v.GenericSchema>(schema: T, path: string) => {
+  if (!previous) return null;
+  const parsed = v.safeParse(schema, JSON.parse(await readFile(path, "utf8")));
+  return parsed.success ? parsed.output : null;
+};
+const previousManifest = await readPrevious(ManifestSchema, previousManifestFile);
+const previousCounts = await readPrevious(ChangeCountsSchema, previousDeltaFile);
 const statsDelta = diffStats(previousManifest?.stats ?? null, manifest.stats);
 const delta = await compareSnapshots(previousFile, currentFile, previous, { tag, time: start.time }, statsDelta);
-const deltaFile = join(OUT_DIR, "delta.json");
+const deltaFile = join(OUT_DIR, DELTA_FILE);
 await writeJson(deltaFile, delta);
 
 // 8. Release
-const notes = renderNotes(manifest, delta, previousManifest);
+const notes = renderNotes(manifest, delta, previousManifest, previousCounts);
 await writeFile(join(OUT_DIR, "notes.md"), notes);
 if (repository) {
   await createRelease(

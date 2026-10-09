@@ -24,14 +24,20 @@ export type Stats = v.InferOutput<typeof StatsSchema>;
 /** Difference between two snapshots' stats (current minus previous). */
 export type StatsDelta = { [K in keyof Stats]: number };
 
-export type Delta = {
+/** Counts of ids that differ between a snapshot and the one before it. */
+export const ChangeCountsSchema = v.object({
+  missing: Count,
+  added: Count,
+  updated_seq_changed: Count,
+  updated_seq_unchanged: Count,
+});
+
+export type ChangeCounts = v.InferOutput<typeof ChangeCountsSchema>;
+
+export type Delta = ChangeCounts & {
   previous: SnapshotRef | null;
   current: SnapshotRef;
   stats: StatsDelta;
-  missing: number;
-  added: number;
-  updated_seq_changed: number;
-  updated_seq_unchanged: number;
 };
 
 /** Writes entries ordered by id to a ZSTD-compressed Parquet file. */
