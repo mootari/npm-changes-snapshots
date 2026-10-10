@@ -18,6 +18,7 @@ type Th = string & {__brand: "th"};
 type Td = string & {__brand: "td"};
 export type Row<ThCount extends number, TdCount extends number> = [...Tuple<Th, ThCount>, ...Tuple<Td, TdCount>];
 
-export const th = (label: string, props?: Attrs) => `<th${props ? ` ${attrs(props)}` : ""}>${escape(label)}</th>` as Th;
-export const td = (value: string) => `<td>${escape(value)}</td>` as Td;
+const tag = (tag: string, value: string, props?: Attrs) => `<${tag}${props ? ` ${attrs(props)}` : ""}>${escape(value)}</${tag}>`;
+export const th = (label: string, props?: Attrs) => tag("th", label, props) as Th;
+export const td = (value: string, props?: Attrs) => tag("td", value, props) as Td;
 export const table = <T extends string[][]>(rows: T) => `<table>\n${rows.map(cells => `  <tr>${cells.join("")}</tr>\n`).join("")}</table>`;

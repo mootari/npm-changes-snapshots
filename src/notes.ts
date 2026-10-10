@@ -54,10 +54,10 @@ ${
 
 ${
   table([
-    [ th("Added", {align: "right"}), td(format.count(delta.added)) ],
-    [ th("Updated", {align: "right"}), td(format.count(delta.updated)) ],
-    [ th("Drifted", {align: "right"}), td(format.count(delta.drifted)) ],
-    [ th("Dropped", {align: "right"}), td(format.count(delta.dropped)) ],
+    [ th("Added"), td(format.count(delta.added), {align: "right"}) ],
+    [ th("Updated"), td(format.count(delta.updated), {align: "right"}) ],
+    [ th("Drifted"), td(format.count(delta.drifted), {align: "right"}) ],
+    [ th("Dropped"), td(format.count(delta.dropped), {align: "right"}) ],
   ] satisfies Row<1, 1>[])
 }
 
@@ -67,39 +67,39 @@ ${
   table([
     [
       th(""),
-      th("Previous snapshot", {align: "right"}),
-      th("This snapshot", {align: "right"}),
-      th("Trend", {align: "right"})
+      th("Previous snapshot"),
+      th("This snapshot"),
+      th("Trend")
     ],
     [
       th("Duration"),
-      td(format.duration(duration(baseline))),
-      td(format.duration(duration(current))),
-      td(format.duration(baseline ? duration(current)! - duration(baseline)! : null, true)),
+      td(format.duration(duration(baseline)), {align: "right"}),
+      td(format.duration(duration(current)), {align: "right"}),
+      td(format.duration(baseline ? duration(current)! - duration(baseline)! : null, true), {align: "right"}),
     ],
     [
       th("Fetched pages"),
-      td(format.count(baseline?.pages)),
-      td(format.count(current?.pages)),
-      td(format.delta(baseline?.pages, current?.pages)),
+      td(format.count(baseline?.pages), {align: "right"}),
+      td(format.count(current?.pages), {align: "right"}),
+      td(format.delta(baseline?.pages, current?.pages), {align: "right"}),
     ],
     [
       th("Fetched entries"),
-      td(format.count(baseline?.fetched_entries)),
-      td(format.count(current?.fetched_entries)),
-      td(format.delta(baseline?.fetched_entries, current?.fetched_entries)),
+      td(format.count(baseline?.fetched_entries), {align: "right"}),
+      td(format.count(current?.fetched_entries), {align: "right"}),
+      td(format.delta(baseline?.fetched_entries, current?.fetched_entries), {align: "right"}),
     ],
     [
       th("Skipped entries"),
-      td(format.count(skipped(baseline))),
-      td(format.count(skipped(current))),
-      td(format.delta(skipped(baseline), skipped(current))),
+      td(format.count(skipped(baseline)), {align: "right"}),
+      td(format.count(skipped(current)), {align: "right"}),
+      td(format.delta(skipped(baseline), skipped(current)), {align: "right"}),
     ],
     [
       th("Stored entries"),
-      td(format.count(baseline?.distinct_entries)),
-      td(format.count(current.distinct_entries)),
-      td(format.delta(baseline?.distinct_entries, current.distinct_entries)),
+      td(format.count(baseline?.distinct_entries), {align: "right"}),
+      td(format.count(current.distinct_entries), {align: "right"}),
+      td(format.delta(baseline?.distinct_entries, current.distinct_entries), {align: "right"}),
     ],
   ] satisfies [Row<4, 0>, ...Row<1, 3>[]])
 }
