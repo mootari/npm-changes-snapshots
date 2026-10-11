@@ -37,9 +37,12 @@ const format = {
 
 /** `previous` is null if there is no previous snapshot, or if its manifest is unreadable. */
 export function renderNotes({current, baseline, delta}: {current: Manifest, baseline: Manifest | null, delta: Delta}): string {
-  const f = format;
   const skipped = (m: Manifest | Nullish) => m ? m.fetched_entries - m.distinct_entries : null;
   const duration = (m: Manifest | Nullish) => m ? +new Date(m.end_state.time) - +new Date(m.start_state.time) : null;
+  
+  const f = format;
+  const thl: typeof th = (label, attrs) => th(label, {...attrs, align: "left"});
+  const tdr: typeof td = (value, attrs) => td(value, {...attrs, align: "right"});
 
   return `
 Snapshot of the most recent [npm replication feed](https://replicate.npmjs.com/) entry of every package, compared to the previous snapshot.
@@ -52,92 +55,115 @@ ${
     : `No previous snapshot was found. All entries have been recorded as additions.`
 }
 
+Packages are counted as drifted if some of their fields changed retroactively. Dropped packages got removed without a corresponding change record.
+
 ${
   table([
-    [ th("Added"), td(format.count(delta.added), {align: "right"}) ],
-    [ th("Updated"), td(format.count(delta.updated), {align: "right"}) ],
-    [ th("Drifted"), td(format.count(delta.drifted), {align: "right"}) ],
-    [ th("Dropped"), td(format.count(delta.dropped), {align: "right"}) ],
+    [
+      thl("Added", {scope: "row"}),
+      tdr(f.count(delta.added))
+    ],
+    [
+      thl("Updated", {scope: "row"}),
+      tdr(f.count(delta.updated))
+    ],
+    [
+      thl("Drifted", {scope: "row"}),
+      tdr(f.count(delta.drifted))
+    ],
+    [
+      thl("Dropped", {scope: "row"}),
+      tdr(f.count(delta.dropped))
+    ],
   ] satisfies Row<1, 1>[])
 }
 
 ### Fetch statistics
 
+Changes are fetched in batches of 10,000 entries per page. When a package gets updated during a run only its newest record is kept.
+
 ${
   table([
     [
       th(""),
-      th("Previous snapshot"),
-      th("This snapshot"),
-      th("Trend")
+      thl("Previous snapshot"),
+      thl("This snapshot"),
+      thl("Trend")
     ],
     [
-      th("Duration"),
-      td(format.duration(duration(baseline)), {align: "right"}),
-      td(format.duration(duration(current)), {align: "right"}),
-      td(format.duration(baseline ? duration(current)! - duration(baseline)! : null, true), {align: "right"}),
+      thl("Duration", {scope: "row"}),
+      tdr(f.duration(duration(baseline))),
+      tdr(f.duration(duration(current))),
+      tdr(f.duration(baseline ? duration(current)! - duration(baseline)! : null, true)),
     ],
     [
-      th("Fetched pages"),
-      td(format.count(baseline?.pages), {align: "right"}),
-      td(format.count(current?.pages), {align: "right"}),
-      td(format.delta(baseline?.pages, current?.pages), {align: "right"}),
+      thl("Fetched pages", {scope: "row"}),
+      tdr(f.count(baseline?.pages)),
+      tdr(f.count(current?.pages)),
+      tdr(f.delta(baseline?.pages, current?.pages)),
     ],
     [
-      th("Fetched entries"),
-      td(format.count(baseline?.fetched_entries), {align: "right"}),
-      td(format.count(current?.fetched_entries), {align: "right"}),
-      td(format.delta(baseline?.fetched_entries, current?.fetched_entries), {align: "right"}),
+      thl("Fetched records", {scope: "row"}),
+      tdr(f.count(baseline?.fetched_entries)),
+      tdr(f.count(current?.fetched_entries)),
+      tdr(f.delta(baseline?.fetched_entries, current?.fetched_entries)),
     ],
     [
-      th("Skipped entries"),
-      td(format.count(skipped(baseline)), {align: "right"}),
-      td(format.count(skipped(current)), {align: "right"}),
-      td(format.delta(skipped(baseline), skipped(current)), {align: "right"}),
+      thl("Stored records", {scope: "row"}),
+      tdr(f.count(baseline?.distinct_entries)),
+      tdr(f.count(current.distinct_entries)),
+      tdr(f.delta(baseline?.distinct_entries, current.distinct_entries)),
     ],
     [
-      th("Stored entries"),
-      td(format.count(baseline?.distinct_entries), {align: "right"}),
-      td(format.count(current.distinct_entries), {align: "right"}),
-      td(format.delta(baseline?.distinct_entries, current.distinct_entries), {align: "right"}),
+      thl("Skipped records", {scope: "row"}),
+      tdr(f.count(skipped(baseline))),
+      tdr(f.count(skipped(current))),
+      tdr(f.delta(skipped(baseline), skipped(current))),
     ],
   ] satisfies [Row<4, 0>, ...Row<1, 3>[]])
 }
 
 ### Revisions
 
+Record revision numbers count any kind of change to a package document and can serve as a heuristic for its overall number of released versions.
+
 ${
   table([
-    [th(""), th("Previous snapshot"), th("This snapshot"), th("Trend")],
     [
-      th("Min"),
-      td(format.count(baseline?.stats.rev_num.min)),
-      td(format.count(current.stats.rev_num.min)),
-      td(format.delta(baseline?.stats.rev_num.min, current.stats.rev_num.min)),
+      th(""),
+      thl("Previous snapshot", {align: "left"}),
+      thl("This snapshot", {align: "left"}),
+      thl("Trend", {align: "left"})
     ],
     [
-      th("Median"),
-      td(format.count(baseline?.stats.rev_num.p50)),
-      td(format.count(current.stats.rev_num.p50)),
-      td(format.delta(baseline?.stats.rev_num.p50, current.stats.rev_num.p50)),
+      thl("Min", {scope: "row"}),
+      tdr(f.count(baseline?.stats.rev_num.min)),
+      tdr(f.count(current.stats.rev_num.min)),
+      tdr(f.delta(baseline?.stats.rev_num.min, current.stats.rev_num.min)),
     ],
     [
-      th("P95"),
-      td(format.count(baseline?.stats.rev_num.p95)),
-      td(format.count(current.stats.rev_num.p95)),
-      td(format.delta(baseline?.stats.rev_num.p95, current.stats.rev_num.p95)),
+      thl("Median", {scope: "row"}),
+      tdr(f.count(baseline?.stats.rev_num.p50)),
+      tdr(f.count(current.stats.rev_num.p50)),
+      tdr(f.delta(baseline?.stats.rev_num.p50, current.stats.rev_num.p50)),
     ],
     [
-      th("P99"),
-      td(format.count(baseline?.stats.rev_num.p99)),
-      td(format.count(current.stats.rev_num.p99)),
-      td(format.delta(baseline?.stats.rev_num.p99, current.stats.rev_num.p99)),
+      thl("P95", {scope: "row"}),
+      tdr(f.count(baseline?.stats.rev_num.p95)),
+      tdr(f.count(current.stats.rev_num.p95)),
+      tdr(f.delta(baseline?.stats.rev_num.p95, current.stats.rev_num.p95)),
     ],
     [
-      th("Max"),
-      td(format.count(baseline?.stats.rev_num.max)),
-      td(format.count(current.stats.rev_num.max)),
-      td(format.delta(baseline?.stats.rev_num.max, current.stats.rev_num.max)),
+      thl("P99", {scope: "row"}),
+      tdr(f.count(baseline?.stats.rev_num.p99)),
+      tdr(f.count(current.stats.rev_num.p99)),
+      tdr(f.delta(baseline?.stats.rev_num.p99, current.stats.rev_num.p99)),
+    ],
+    [
+      thl("Max", {scope: "row"}),
+      tdr(f.count(baseline?.stats.rev_num.max)),
+      tdr(f.count(current.stats.rev_num.max)),
+      tdr(f.delta(baseline?.stats.rev_num.max, current.stats.rev_num.max)),
     ],
   ] satisfies [Row<4, 0>, ...Row<1, 3>[]])
 }

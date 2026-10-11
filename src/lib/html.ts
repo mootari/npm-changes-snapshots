@@ -18,7 +18,18 @@ type Th = string & {__brand: "th"};
 type Td = string & {__brand: "td"};
 export type Row<ThCount extends number, TdCount extends number> = [...Tuple<Th, ThCount>, ...Tuple<Td, TdCount>];
 
-const tag = (tag: string, value: string, props?: Attrs) => `<${tag}${props ? ` ${attrs(props)}` : ""}>${escape(value)}</${tag}>`;
-export const th = (label: string, props?: Attrs) => tag("th", label, props) as Th;
-export const td = (value: string, props?: Attrs) => tag("td", value, props) as Td;
-export const table = <T extends string[][]>(rows: T) => `<table>\n${rows.map(cells => `  <tr>${cells.join("")}</tr>\n`).join("")}</table>`;
+const tag = (tag: string, value?: string | null, props?: Attrs) => {
+  const open = `<${tag}${props ? ` ${attrs(props)}` : ""} ${value == null ? `/` : ""}>`;
+  const inner = value == null ? "" : escape(value);
+  const close = value == null ? "" : `</${tag}>`;
+  return open + inner + close;
+}
+
+type TdAttrs = {align: "left" | "center" | "right", title: string};
+type ThAttrs = TdAttrs & {scope: "row" | "col"};
+export const th = (label: string, attrs?: Partial<ThAttrs>) => tag("th", label, attrs) as Th;
+export const td = (value: string, attrs?: Partial<TdAttrs>) => tag("td", value, attrs) as Td;
+export const table = <T extends string[][]>(rows: T) =>
+  `<table>\n${
+    rows.map(cells => `  <tr>${cells.map(d => `\n    ${d}`).join("")}\n  </tr>\n`).join("")
+  }</table>`;
