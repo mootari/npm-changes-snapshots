@@ -48,13 +48,8 @@ const format = {
     return (!(sign && millis) ? "" : millis < 0 ? "-" : "+") + parts.join(":");
 
   },
-  elapsed(from: string | Nullish, to: string | Nullish, sign: boolean = false): string {
-    if(!from || !to) return N_A;
-    return format.duration(Math.abs(Math.round(+new Date(to) - +new Date(from))), sign);
-  }
 };
 
-/** `previous` is null if there is no previous snapshot, or if its manifest is unreadable. */
 export function renderNotes({current, baseline, diff}: ReleaseMeta): string {
   const skipped = (m: SnapshotInfo | Nullish) => m ? m.run.fetched_records - m.stats.total : null;
   const duration = (m: SnapshotInfo | Nullish) => m ? +new Date(m.run.end_state.time) - +new Date(m.run.start_state.time) : null;

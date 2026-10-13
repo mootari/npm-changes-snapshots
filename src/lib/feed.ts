@@ -1,13 +1,12 @@
 import * as v from "valibot";
+import { UInt53 } from "./schema.ts";
 
 const INFO_URL = "https://replicate.npmjs.com/";
 const FEED_URL = "https://replicate.npmjs.com/registry/_changes";
 const PAGE_LIMIT = 10000;
 
-const Int = v.pipe(v.number(), v.safeInteger());
-
 const ChangeRecordSchema = v.strictObject({
-  seq: Int,
+  seq: UInt53,
   id: v.string(),
   changes: v.strictTuple([v.strictObject({ rev: v.string() })]),
   deleted: v.optional(v.literal(true)),
@@ -15,12 +14,12 @@ const ChangeRecordSchema = v.strictObject({
 
 const ChangesSchema = v.strictObject({
   results: v.array(ChangeRecordSchema),
-  last_seq: Int,
+  last_seq: UInt53,
 });
 
 const InfoSchema = v.object({
-  doc_count: v.number(),
-  update_seq: Int,
+  doc_count: UInt53,
+  update_seq: UInt53,
 });
 
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {

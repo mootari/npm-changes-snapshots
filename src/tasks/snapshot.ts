@@ -1,7 +1,7 @@
 import { DuckDBDataChunkWriter, JSToDuckDBValueConverter } from "@duckdb/node-api";
 import { fetchChanges, fetchFeedInfo } from "../lib/feed.ts";
 import * as v from "valibot";
-import { withMemoryDb } from "../lib/duckdb.ts";
+import { queryRow, withMemoryDb } from "../lib/duckdb.ts";
 import { UInt53 } from "../lib/schema.ts";
 
 const FeedStateSchema = v.strictObject({
@@ -37,7 +37,7 @@ export async function createSnapshot(path: string, {signal}: {signal?: AbortSign
     const writer = DuckDBDataChunkWriter.forAppender(appender, { converter: JSToDuckDBValueConverter });
 
     const startTime = new Date();
-    const startState = await fetchFeedInfo();
+    const startState = await fetchFeedInfo({signal});
     let pages = 0;
 
     for await(const {fetched_at, results} of fetchChanges({signal})) {
@@ -55,14 +55,15 @@ export async function createSnapshot(path: string, {signal}: {signal?: AbortSign
       }
     }
     const endTime = new Date();
-    const endState = await fetchFeedInfo();
+    const endState = await fetchFeedInfo({signal});
 
     writer.flush();
     appender.closeSync();
 
     // At this point there may be multiple rows per id. We're only deduplicating on export to Parquet.
-    const reader = await conn.runAndReadAll(`SELECT count(*)::DOUBLE FROM changes`);
-    const [[total]] = reader.getColumnsJS() as number[][];
+    const {total} = await queryRow(v.strictObject({total: UInt53}), conn, `
+      SELECT count(*)::DOUBLE AS total FROM changes
+    `);
 
     const runInfo = v.parse(RunInfoSchema, {
       "$schema_version": 1,

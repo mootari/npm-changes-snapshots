@@ -2,6 +2,7 @@ import { queryColumn, queryRow, withMemoryDb } from "../lib/duckdb.ts";
 import * as v from "valibot";
 import type {InferOutput} from "valibot";
 import { UInt53 } from "../lib/schema.ts";
+import { deriveSignal } from "../lib/abort.ts";
 
 const SnapshotStatsSchema = v.strictObject({
   total: UInt53,
@@ -40,20 +41,27 @@ export async function buildSnapshotStats(snapshotPath: string): Promise<Snapshot
   });
 }
 
-export async function buildDiffStats(diffPath: string, {signal}: {signal?: AbortSignal} = {}) {
+export async function buildDiffStats(diffPath: string, {signal: parentSignal}: {signal?: AbortSignal} = {}) {
   return await withMemoryDb(async(conn) => {
     const droppedIds = await queryColumn(v.string(), conn, `
       SELECT id FROM read_parquet($path) WHERE status = 'dropped'
     `, {path: diffPath});
-    const flaky = [];
-    for(const batch of chunked(200, droppedIds)) {
-      await Promise.all(batch.map(async id => {
-        if(await pingPackument(id, {signal})) flaky.push(id);
-      }));
+    const flaky: string[] = [];
+    const {abort, signal} = deriveSignal(parentSignal);
+    try {
+      for(const batch of chunked(200, droppedIds)) {
+        await Promise.all(batch.map(async id => {
+          if(await pingPackument(id, {signal})) flaky.push(id);
+        }));
+      }
+    }
+    catch(error) {
+      abort(error);
+      throw error;
     }
 
     if(flaky.length) {
-      console.warn(`${flaky.length} packuments for dropped IDs are still accessible.`);
+      console.warn(`${flaky.length} packuments for dropped IDs are still accessible:`, flaky.join(", "));
     }
 
     const rowSchema = v.strictObject({
@@ -73,7 +81,7 @@ export async function buildDiffStats(diffPath: string, {signal}: {signal?: Abort
 /**
  * Yields an array chunk by chunk.
  */
-function* chunked<T extends unknown>(chunkSize: number, arr: T[]) {
+function* chunked<T>(chunkSize: number, arr: T[]) {
   for(let i = 0; i < arr.length;) yield arr.slice(i, i += chunkSize);
 }
 
@@ -90,5 +98,5 @@ async function pingPackument(id: string, {signal}: {signal?: AbortSignal}) {
   };
 
   const url = `https://registry.npmjs.org/${id}`;
-  return (await ping(url)) || (await ping(url + "?write=true"));
+  return (await ping(url)) && (await ping(url + "?write=true"));
 }

@@ -14,45 +14,43 @@ export async function withMemoryDb<T>(run: (conn: DuckDBConnection) => Promise<T
   }
 }
 
-export async function query<
-  C extends DuckDBConnection,
-  E extends V.ObjectEntries,
-  M extends V.ErrorMessage<V.StrictObjectIssue> | undefined,
-  S extends V.StrictObjectSchema<E, M>
->(rowSchema: S, conn: C, ...[sql, values]: Parameters<C["runAndReadAll"]>) {
+type RowSchema = V.StrictObjectSchema<v.ObjectEntries, V.ErrorMessage<V.StrictObjectIssue> | undefined>;
+type RunArgs = Parameters<DuckDBConnection["runAndReadAll"]>;
+
+export async function query<S extends RowSchema>(
+  rowSchema: S,
+  conn: DuckDBConnection,
+  ...[sql, values]: RunArgs
+) {
   const reader = await conn.runAndReadAll(sql, values);
   return v.parse(v.array(rowSchema), reader.getRowObjectsJS());
 }
 
-export async function queryRow<
-  C extends DuckDBConnection,
-  E extends V.ObjectEntries,
-  M extends V.ErrorMessage<V.StrictObjectIssue> | undefined,
-  S extends V.StrictObjectSchema<E, M>
->(rowSchema: S, conn: C, ...[sql, values]: Parameters<C["runAndReadAll"]>) {
+export async function queryRow<S extends RowSchema>(
+  rowSchema: S,
+  conn: DuckDBConnection,
+  ...[sql, values]: RunArgs
+) {
   const reader = await conn.runAndReadAll(sql, values);
   return v.parse(v.strictTuple([rowSchema]), reader.getRowObjectsJS())[0];
 }
 
-export async function queryColumn<
-  C extends DuckDBConnection,
-  I,
-  O,
-  M extends V.BaseIssue<unknown>,
-  S extends V.BaseSchema<I, O, M>
->(valueSchema: S, conn: C, ...[sql, values]: Parameters<C["runAndReadAll"]>) {
+export async function queryColumn<S extends V.GenericSchema>(
+  valueSchema: S,
+  conn: DuckDBConnection,
+  ...[sql, values]: RunArgs
+) {
   const reader = await conn.runAndReadAll(sql, values);
   // getColumnsJS() returns an empty array if the result is empty.
   const columns = Object.values(reader.getColumnsObjectJS());
   return v.parse(v.strictTuple([v.array(valueSchema)]), columns)[0];
 }
 
-export async function readParquetKvMetadata<
-  I,
-  O,
-  M extends V.BaseIssue<unknown>,
-  S extends V.BaseSchema<I, O, M>
->(path: string, key: string, valueSchema: S) {
+export async function readParquetKvMetadata<S extends V.GenericSchema>(
+  path: string,
+  key: string,
+  valueSchema: S
+) {
   return await withMemoryDb(async(conn) => {
     const rowSchema = v.strictObject({
       value: v.pipe(v.string(), v.parseJson(), valueSchema)

@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { parseConfig } from "./config.ts";
 import { createOctokit, createRelease, downloadAsset, fetchLatestRelease } from "./lib/github.ts";
 import { renderNotes as renderReleaseNotes, type ReleaseMeta } from "./tasks/notes.ts";
-import { createSnapshot, RunInfoSchema, type RunInfo } from "./tasks/snapshot.ts";
+import { createSnapshot, RunInfoSchema } from "./tasks/snapshot.ts";
 import { createDiff } from "./tasks/diff.ts";
-import { buildDiffStats, buildSnapshotStats, type SnapshotStats } from "./tasks/stats.ts";
+import { buildDiffStats, buildSnapshotStats } from "./tasks/stats.ts";
 import { readParquetKvMetadata } from "./lib/duckdb.ts";
 
 const controller = new AbortController();
@@ -32,7 +32,7 @@ const snapshotStats = await buildSnapshotStats(snapshotPath);
 const baselinePath = await (async() => {
   if(!repository) return null;
 
-  const release = repository ? await fetchLatestRelease(octokit, repository) : null;
+  const release = await fetchLatestRelease(octokit, {...repository, signal});
   if(!release) return null;
 
   const assetId = release.assetIds[SNAPSHOT_FILE];
@@ -42,7 +42,7 @@ const baselinePath = await (async() => {
   await mkdir(dir, { recursive: true });
 
   const dest = join(dir, SNAPSHOT_FILE);
-  await downloadAsset(octokit, {...repository, id: assetId, dest, signal: controller.signal});
+  await downloadAsset(octokit, {...repository, id: assetId, dest, signal});
 
   return dest;
 })();
@@ -70,12 +70,12 @@ const releaseNotes = renderReleaseNotes({
   diff: diffStats,
 });
 if (repository) {
-  await createRelease(
-    octokit,
-    repository,
-    { tag, title: `Snapshot ${formattedTime}`, notes: releaseNotes, draft },
-    [snapshotPath, ...diffStats ? [diffPath] : []],
-  );
+  await createRelease(octokit, {
+    ...repository,
+    release: { tag, title: `Snapshot ${formattedTime}`, notes: releaseNotes, draft },
+    paths: [snapshotPath, ...diffStats ? [diffPath] : []],
+    signal
+  });
 } else {
   await writeFile(join(config.outDir, "release-notes.md"), releaseNotes);
   console.warn("GITHUB_REPOSITORY is not set, skipping release.");
