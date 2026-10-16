@@ -1,7 +1,8 @@
-import { queryRow, withMemoryDb } from "../lib/duckdb.ts";
+import { queryRow, readParquetKvMetadata, withMemoryDb } from "../lib/duckdb.ts";
 import * as v from "valibot";
 import type * as V from "valibot";
 import { UInt53 } from "../lib/schema.ts";
+import { RunInfoSchema } from "./snapshot.ts";
 
 export const DiffInfoSchema = v.strictObject({
   total: UInt53,
@@ -47,16 +48,27 @@ export async function createDiff(leftPath: string, rightPath: string, diffPath: 
       {leftPath, rightPath}
     );
 
-    // TODO add baseline asset URL as metadata
+    const readInfo = async(path: string) => JSON.stringify(
+      await readParquetKvMetadata(path, "run_info", RunInfoSchema).catch(() => null)
+    );
+    // TODO add baseline asset URL as metadata?
     await conn.run(
       `
         COPY diff TO $diffPath (
           FORMAT parquet,
           COMPRESSION zstd,
-          COMPRESSION_LEVEL 16
+          COMPRESSION_LEVEL 16,
+          KV_METADATA {
+            l_run_info: $lInfo,
+            r_run_info: $rInfo
+          }
         )
       `,
-      {diffPath}
+      {
+        diffPath,
+        lInfo: await readInfo(leftPath),
+        rInfo: await readInfo(rightPath)
+      }
     );
   }, {signal});
   // Verify that the schema includes all statuses.
