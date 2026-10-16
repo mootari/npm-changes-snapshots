@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+
+import { deriveSignal } from "../src/lib/abort.ts";
+import * as b from "@bomb.sh/router";
+import * as snapshotCommand from "../src/commands/snapshot.ts";
+import * as baselineCommand from "../src/commands/baseline.ts";
+import * as diffCommand from "../src/commands/diff.ts";
+import * as summaryCommand from "../src/commands/summary.ts";
+import * as releaseCommand from "../src/commands/release.ts";
+import * as allCommand from "../src/commands/all.ts";
+
+const routes = b.command(
+  b.name(""),
+  allCommand.command,
+  snapshotCommand.command,
+  baselineCommand.command,
+  diffCommand.command,
+  summaryCommand.command,
+  releaseCommand.command,
+);
+
+const result = b.parse(routes, {
+  argv: process.argv.slice(2),
+  envs: [{ name: "process", value: process.env }]
+});
+if (!result.ok) {
+  console.error(b.printErrors(result));
+  process.exit(1);
+}
+
+if(result.method === "help") {
+  console.log(b.printHelp(result));
+}
+
+if(result.method === "execute") {
+  // const config = parseConfig(process.env);
+  const {abort, signal} = deriveSignal();
+  process.on("SIGINT", () => {
+    abort();
+    // TODO do something useful here?
+    process.exit();
+  });
+
+  switch(result.route) {
+    case "/": {
+      console.log(b.printHelp(result));
+      break;
+    }
+
+    case "/all": {
+      await allCommand.execute(result.model, {signal});
+      break;
+    }
+
+    case "/snapshot": {
+      await snapshotCommand.execute(result.model, {signal});
+      break;
+    }
+
+    case "/baseline": {
+      await baselineCommand.execute(result.model, {signal});
+      break;
+    }
+
+    case "/diff": {
+      await diffCommand.execute(result.model, {signal});
+      break;
+    }
+
+    case "/summary": {
+      await summaryCommand.execute(result.model, {signal});
+      break;
+    }
+
+    case "/release": {
+      await releaseCommand.execute(result.model, {signal});
+      break;
+    }
+
+    default: throw new Error("Not implemented");
+  }
+}
