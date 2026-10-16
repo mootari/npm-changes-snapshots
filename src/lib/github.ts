@@ -1,85 +1,81 @@
-import { createWriteStream } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { basename } from "node:path";
-import { pipeline } from "node:stream/promises";
-import { Octokit } from "octokit";
+import { Octokit, RequestError } from "octokit";
 
 export const createOctokit = (token?: string) => new Octokit({ auth: token });
 
-export async function fetchLatestRelease(octokit: Octokit, {owner, repo, signal}: {owner: string, repo: string, signal?: AbortSignal}) {
-  const per_page = 10;
-  let page = 1;
-  // Releases are listed newest first.
-  while(true) {
-    const {data: releases} = await octokit.rest.repos.listReleases({owner, repo, per_page, page, request: {signal}});
-    for (const release of releases) if (!release.draft) return {
-      url: release.html_url,
-      tag: release.tag_name,
-      created: release.created_at,
-      assetIds: Object.fromEntries(release.assets.map(d => [d.name, d.id])),
+export async function fetchRelease(octokit: Octokit, {owner, repo, tag, signal}: {owner: string, repo: string, tag?: string, signal?: AbortSignal}) {
+  try {
+    const {data} = tag
+      ? await octokit.rest.repos.getReleaseByTag({owner, repo, tag, request: {signal}})
+      : await octokit.rest.repos.getLatestRelease({owner, repo, request: {signal}});
+    return {
+      url: data.html_url,
+      tag: data.tag_name,
+      created: data.created_at,
+      assets: Object.fromEntries(
+        data.assets.map(d => [d.name, ({
+          name: d.name,
+          // Technically the digest should always use sha256
+          sha256: d.digest?.match(/^sha256:([0-9a-f]{64})$/)?.[1] ?? null,
+          id: d.id,
+          download_url: d.browser_download_url,
+        })])
+      ),
     };
-    if(releases.length < per_page) return null;
-    page++;
+  }
+  catch(error) {
+    if(error instanceof RequestError && error.status === 404) return null;
+    throw error;
   }
 }
 
-export async function downloadAsset(octokit: Octokit, {owner, repo, id, dest, signal}: {owner: string, repo: string, id: number, dest: string, signal?: AbortSignal}): Promise<void> {
-  // Adapted from https://github.com/octokit/types.ts/issues/606
-  const {data} = await octokit.rest.repos.getReleaseAsset({
-    owner,
-    repo,
-    asset_id: id,
-    headers: {
-      accept: "application/octet-stream"
-    },
-    request: {
-      parseSuccessResponseBody: false,
-      signal,
-    },
-  });
-  // Octokit types don't account for response options. See https://github.com/octokit/types.ts/issues/606
-  await pipeline(data as unknown as NodeJS.ReadableStream, createWriteStream(dest));
-}
+type ReleaseStub = {owner: string, repo: string, id: number};
 
-/**
- * Creates a release and uploads the files at `paths` as its assets.
- * The release is created as a draft and only published after all assets are uploaded,
- * unless `release.draft` is set.
- */
-export async function createRelease(octokit: Octokit, {owner, repo, release, paths, signal}: {
-  owner: string,
-  repo: string,
-  release: { tag: string; title: string; notes: string; draft: boolean },
-  paths: string[],
+export async function createDraftRelease(octokit: Octokit, {owner, repo, tag, title, notes, signal}: {
+  owner: string;
+  repo: string;
+  tag: string;
+  title: string;
+  notes: string;
   signal?: AbortSignal
-}): Promise<void> {
+}): Promise<ReleaseStub> {
   const { data } = await octokit.rest.repos.createRelease({
     owner,
     repo,
-    tag_name: release.tag,
-    name: release.title,
-    body: release.notes,
+    tag_name: tag,
+    name: title,
+    body: notes,
     draft: true,
     request: {signal}
   });
+  return {owner, repo, id: data.id};
+}
 
-  for (const path of paths) {
-    await octokit.rest.repos.uploadReleaseAsset({
-      owner,
-      repo,
-      release_id: data.id,
-      name: basename(path),
-      data: (await readFile(path, {signal})) as unknown as string,
-      headers: { "content-type": "application/octet-stream" },
-      request: {signal}
-    });
-  }
+export async function uploadReleaseAsset(octokit: Octokit, {release, name, body, signal}: {
+  release: ReleaseStub,
+  name: string,
+  body: string | File | Uint8Array | Blob,
+  signal?: AbortSignal
+}) {
+  await octokit.rest.repos.uploadReleaseAsset({
+    owner: release.owner,
+    repo: release.repo,
+    release_id: release.id,
+    name,
+    headers: { "content-type": "application/octet-stream" },
+    // Octokit types don't account for the request content-type
+    data: body as string,
+    request: {signal}
+  });
+}
 
-  if(release.draft) return;
+export async function publishRelease(octokit: Octokit, {release, signal}: {
+  release: ReleaseStub,
+  signal?: AbortSignal
+}) {
   await octokit.rest.repos.updateRelease({
-    owner,
-    repo,
-    release_id: data.id,
+    owner: release.owner,
+    repo: release.repo,
+    release_id: release.id,
     draft: false,
     request: {signal}
   });

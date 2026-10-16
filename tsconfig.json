@@ -10,7 +10,8 @@
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+    "lib": ["es2022"]
   },
-  "include": ["src"]
+  "include": ["src", "bin/changes"]
 }

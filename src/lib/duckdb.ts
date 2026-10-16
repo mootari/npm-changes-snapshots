@@ -2,13 +2,17 @@ import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import * as v from "valibot";
 import type * as V from "valibot";
 
-export async function withMemoryDb<T>(run: (conn: DuckDBConnection) => Promise<T>) {
+export async function withMemoryDb<T>(run: (conn: DuckDBConnection) => Promise<T>, {signal}: {signal?: AbortSignal} = {}) {
   const db = await DuckDBInstance.create(":memory:");
   const conn = await db.connect();
+  const interrupt = () => conn.interrupt();
+  signal?.addEventListener("abort", interrupt);
   try {
+    signal?.throwIfAborted();
     return await run(conn);
   }
   finally {
+    signal?.removeEventListener("abort", interrupt);
     conn.closeSync();
     db.closeSync();
   }

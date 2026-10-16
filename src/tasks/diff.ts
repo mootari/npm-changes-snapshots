@@ -3,7 +3,7 @@ import * as v from "valibot";
 import type * as V from "valibot";
 import { UInt53 } from "../lib/schema.ts";
 
-const DiffInfoSchema = v.strictObject({
+export const DiffInfoSchema = v.strictObject({
   total: UInt53,
   added: UInt53,
   updated: UInt53,
@@ -12,8 +12,8 @@ const DiffInfoSchema = v.strictObject({
 });
 export type DiffInfo = V.InferOutput<typeof DiffInfoSchema>;
 
-export async function createDiff(leftPath: string, rightPath: string, diffPath: string): Promise<DiffInfo> {
-  return await withMemoryDb(async(conn) => {
+export async function createDiff(leftPath: string, rightPath: string, diffPath: string, {signal}: {signal?: AbortSignal} = {}): Promise<DiffInfo> {
+  await withMemoryDb(async(conn) => {
     await conn.run(
       `
         CREATE TABLE diff AS (
@@ -38,7 +38,8 @@ export async function createDiff(leftPath: string, rightPath: string, diffPath: 
             r.rev_num AS r_rev_num,
             r.deleted AS r_deleted,
             COALESCE(r.fetched_at, (SELECT min(fetched_at) FROM r)) AS r_fetched_at,
-          FROM l FULL OUTER JOIN r USING (id)
+          FROM l
+          FULL OUTER JOIN r USING (id)
           WHERE (l.id, l.seq, l.rev, l.deleted) IS DISTINCT FROM (r.id, r.seq, r.rev, r.deleted)
           ORDER BY id
         )
@@ -57,17 +58,23 @@ export async function createDiff(leftPath: string, rightPath: string, diffPath: 
       `,
       {diffPath}
     );
+  }, {signal});
+  // Verify that the schema includes all statuses.
+  const c = await queryStatusCounts(diffPath);
+  if(0 !== c.total - (c.added + c.updated + c.dropped + c.drifted)) throw new Error("Invalid diff counts");
+  return c;
+}
 
-    const c = await queryRow(DiffInfoSchema, conn, `
+export async function queryStatusCounts(diffPath: string, {signal}: {signal?: AbortSignal} = {}): Promise<DiffInfo> {
+  return await withMemoryDb(async(conn) => {
+    return await queryRow(DiffInfoSchema, conn, `
       SELECT
         count(*)::DOUBLE AS total,
         (count(*) FILTER (WHERE status = 'added'))::DOUBLE AS added,
         (count(*) FILTER (WHERE status = 'updated'))::DOUBLE AS updated,
         (count(*) FILTER (WHERE status = 'dropped'))::DOUBLE AS dropped,
         (count(*) FILTER (WHERE status = 'drifted'))::DOUBLE AS drifted
-      FROM diff
-    `);
-    if(0 !== c.total - (c.added + c.updated + c.dropped + c.drifted)) throw new Error("Invalid diff counts");
-    return c;
-  });
+      FROM read_parquet($diffPath)
+    `, {diffPath});
+  }, {signal});
 }

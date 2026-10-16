@@ -1,4 +1,4 @@
-import type { RunInfo } from "./snapshot.ts";
+import type { RunInfo } from "../snapshot.ts";
 import type { SnapshotStats } from "./stats.ts";
 
 type SnapshotInfo = {
@@ -46,11 +46,10 @@ const format = {
     };
     const parts = Object.entries(units).map(([, {d, r}]) => String(Math.floor(abs / d) % r).padStart(2, "0"));
     return (!(sign && millis) ? "" : millis < 0 ? "-" : "+") + parts.join(":");
-
   },
 };
 
-export function renderNotes({current, baseline, diff}: ReleaseMeta): string {
+export function renderSummary({current, baseline, diff}: ReleaseMeta): string {
   const skipped = (m: SnapshotInfo | Nullish) => m ? m.run.fetched_records - m.stats.total : null;
   const duration = (m: SnapshotInfo | Nullish) => m ? +new Date(m.run.end_state.time) - +new Date(m.run.start_state.time) : null;
   // TODO
@@ -67,7 +66,7 @@ Snapshot of the most recent [npm replication feed](https://replicate.npmjs.com/)
 ${
   !baseline
     ? `There was no compatible snapshot to compare against.`
-    : `The previous snapshot was created on ${format.time(baseline.run.start_state.time)}.`
+    : `The previous snapshot was created on ${format.time(baseline.run.end_state.time)}.`
 }
 
 ${
@@ -90,7 +89,7 @@ ${
 | deleted | ${ f.count(diff.deleted) }
 | undeleted | ${ f.count(diff.undeleted) }
 
-[^3]: The ID is no longer present in the feed but the packument is still reachable. Suggests that a new unpublished change record replaced the old one.
+[^3]: The ID is no longer present in the feed but the packument is still reachable.
     `
 }
 
@@ -110,14 +109,14 @@ Changes are fetched in batches of 10,000 entries per page. When a package gets u
 
 Record revision numbers count any kind of change to a package document and can serve as a heuristic for its overall number of released versions.
 
-| Dimension | Previous snapshot | This snapshot | Trend
+| | Previous snapshot | This snapshot | Trend
 | :- | -: | -: | -:
-| min | ${ counts(baseline?.stats.rev.min, current.stats.rev.min) }
-| median | ${ counts(baseline?.stats.rev.p50, current.stats.rev.p50) }
-| p95 | ${ counts(baseline?.stats.rev.p95, current.stats.rev.p95) }
-| p99 | ${ counts(baseline?.stats.rev.p99, current.stats.rev.p99) }
-| max | ${ counts(baseline?.stats.rev.max, current.stats.rev.max) }
-| sum | ${ counts(baseline?.stats.rev.sum, current.stats.rev.sum) }
+| **min** | ${ counts(baseline?.stats.rev.min, current.stats.rev.min) }
+| **median** | ${ counts(baseline?.stats.rev.p50, current.stats.rev.p50) }
+| **p95** | ${ counts(baseline?.stats.rev.p95, current.stats.rev.p95) }
+| **p99** | ${ counts(baseline?.stats.rev.p99, current.stats.rev.p99) }
+| **max** | ${ counts(baseline?.stats.rev.max, current.stats.rev.max) }
+| **sum** | ${ counts(baseline?.stats.rev.sum, current.stats.rev.sum) }
 
   `;
 }

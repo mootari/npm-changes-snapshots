@@ -1,5 +1,5 @@
 import { DuckDBDataChunkWriter, JSToDuckDBValueConverter } from "@duckdb/node-api";
-import { fetchChanges, fetchFeedInfo } from "../lib/feed.ts";
+import { fetchChanges, fetchFeedInfo } from "../lib/registry.ts";
 import * as v from "valibot";
 import { queryRow, withMemoryDb } from "../lib/duckdb.ts";
 import { UInt53 } from "../lib/schema.ts";
@@ -40,7 +40,7 @@ export async function createSnapshot(path: string, {signal}: {signal?: AbortSign
     const startState = await fetchFeedInfo({signal});
     let pages = 0;
 
-    for await(const {fetched_at, results} of fetchChanges({signal})) {
+    for await(const {fetched_at, results, retries} of fetchChanges({signal})) {
       ++pages;
       for (const { id, seq, changes, deleted } of results) {
         const {rev} = changes[0];
@@ -48,11 +48,13 @@ export async function createSnapshot(path: string, {signal}: {signal?: AbortSign
           id,
           seq,
           rev,
-          parseInt(rev),
+          parseInt(rev), // rev_num
           deleted ?? false,
           fetched_at
         ]);
       }
+      if(retries.length) process.stderr.write(`Retried due to ${retries.join(", ")}\n`);
+      if(pages % 20 === 0) process.stderr.write(`Fetched ${pages} pages…\n`);
     }
     const endTime = new Date();
     const endState = await fetchFeedInfo({signal});
@@ -100,5 +102,5 @@ export async function createSnapshot(path: string, {signal}: {signal?: AbortSign
     );
 
     return runInfo;
-  });
+  }, {signal});
 }

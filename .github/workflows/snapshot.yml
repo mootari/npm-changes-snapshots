@@ -24,8 +24,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: npm ci
-      - run: npm run snapshot
+      - name: Set up project
+        run: npm ci
+      - name: Create snapshot and release
+        run: |
+          bin/changes all --publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
